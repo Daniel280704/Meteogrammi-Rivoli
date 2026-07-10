@@ -1,66 +1,44 @@
-    #!/usr/bin/env python3
+#!/usr/bin/env python3
 import os
 import requests
 import sys
 import google.generativeai as genai
+from datetime import datetime
 
 LAT = 45.0716
 LON = 7.5157
 
 def interpella_gemini(dati_meteo):
     api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key:
-        print("⚠️ GEMINI_API_KEY mancante! Inseriscila nei Secrets di GitHub.")
-        sys.exit(1)
-
-    # Configurazione della libreria ufficiale Google
     genai.configure(api_key=api_key)
+    # Usiamo il modello che hai trovato nel test
+    model = genai.GenerativeModel('models/gemini-3.5-flash')
+    
+    today = datetime.now().strftime("%d/%m/%Y")
     
     prompt = f"""
-    Sei un meteorologo esperto e un divulgatore scientifico. Scrivi il bollettino meteo di nowcasting per oggi a Rivoli (Piemonte).
-    Il testo deve essere discorsivo, accattivante e professionale, perfetto per la tua pagina Facebook di meteorologia.
+    Sei un meteorologo professionista. Scrivi un bollettino sintetico per Rivoli (TO) per la data: {today}.
+    
+    REGOLE RIGIDE:
+    1. ZERO chiacchiere, stile telegrafico.
+    2. Usa SOLO queste 4 fasce: Mattino (06-12), Pomeriggio (12-18), Sera (18-24), Notte (00-06).
+    3. Per ogni fascia indica: 
+       - Rischio Pioggia (Nullo / Basso / Medio / Alto)
+       - Condizioni cielo (es. Sereno, Variabile, Coperto)
+       - Eventuale Vento forte (solo se raffiche > 30km/h)
+    4. Includi in apertura o chiusura: T-Min e T-Max previste per oggi.
+    5. IGNORA nebbia e brina (siamo a luglio).
+    6. NON scrivere i millimetri di pioggia, usa solo il Rischio.
 
-    Dividi la cronaca in 4 fasce orarie:
-    - Mattino (06-12)
-    - Pomeriggio (12-18)
-    - Sera (18-24)
-    - Notte (00-06)
-
-    Analizza i seguenti dati di pioggia (in mm) forniti dai modelli ad altissima risoluzione. 
-    Hai a disposizione:
-    - ICON-D2 (Deterministico tedesco)
-    - AROME (Deterministico francese)
-    - ICON-D2 EPS Media (La media dei 20 scenari dell'ensemble, indica la tendenza generale)
-    - ICON-D2 EPS Max (Il picco massimo tra i 20 scenari, indica il "rischio peggiore" in caso di temporali intensi)
-
-    Se l'EPS Max è alto ma la Media è bassa, significa che c'è rischio di fenomeni intensi ma molto localizzati o incerti. Fallo notare ai lettori usando termini probabilistici.
-    Non incollare la tabella dei dati grezzi, scrivi solo il testo narrativo del bollettino usando emoji adatte.
-
-    DATI GREZZI DEI MODELLI:
+    DATI ANALITICI (Modelli: D2, AROME, EPS):
     {dati_meteo}
     """
 
     try:
-        # Usiamo l'alias 'gemini-1.5-flash-latest' che è più robusto per le chiamate API
-        model = genai.GenerativeModel('models/gemini-3.5-flash')
-        
-        response = model.generate_content(
-            prompt,
-            generation_config=genai.types.GenerationConfig(
-                temperature=0.25,
-            )
-        )
+        response = model.generate_content(prompt, generation_config={"temperature": 0.1})
         return response.text
     except Exception as e:
-        print(f"❌ Errore Google Generative AI: {e}")
-        sys.exit(1)
-
-def invia_telegram(testo):
-    token = os.getenv("TELEGRAM_TOKEN")
-    chat_id = os.getenv("TELEGRAM_CHAT_ID")
-    url = f"https://api.telegram.org/bot{token}/sendMessage"
-    payload = {"chat_id": chat_id, "text": testo, "parse_mode": "Markdown"}
-    requests.post(url, data=payload)
+        return f"Errore AI: {e}"
 
 def fetch_api(url, params):
     try:
@@ -68,78 +46,46 @@ def fetch_api(url, params):
         resp.raise_for_status()
         return resp.json()
     except Exception as e:
-        print(f"⚠️ Errore fetch API ({url}): {e}")
+        print(f"Errore API: {e}")
         return None
 
 def main():
-    print("📥 1. Scaricamento Deterministici (ICON-D2, AROME)...")
-    dati_det = fetch_api(
-        "https://api.open-meteo.com/v1/forecast",
-        {
-            "latitude": LAT, "longitude": LON,
-            "hourly": "precipitation",
-            "models": "icon_d2,arome_france",
-            "timezone": "Europe/Rome",
-            "forecast_days": 1
-        }
-    )
-
-    print("📥 2. Scaricamento Ensemble (ICON-D2 EPS 20 membri)...")
-    dati_eps = fetch_api(
-        "https://ensemble-api.open-meteo.com/v1/ensemble",
-        {
-            "latitude": LAT, "longitude": LON,
-            "hourly": "precipitation",
-            "models": "icon_d2",
-            "timezone": "Europe/Rome",
-            "forecast_days": 1
-        }
-    )
-
-    if not dati_det or not dati_eps:
-        print("❌ Impossibile recuperare i dati meteo. Uscita.")
-        sys.exit(1)
-
-    orari = dati_det["hourly"]["time"]
+    # Fetch dati orari (rischio, vento, nubi) e giornalieri (Tmin/max)
+    dati = fetch_api("https://api.open-meteo.com/v1/forecast", {
+        "latitude": LAT, "longitude": LON,
+        "hourly": "precipitation,cloud_cover,wind_speed_10m",
+        "daily": "temperature_2m_max,temperature_2m_min",
+        "models": "icon_d2,arome_france",
+        "timezone": "Europe/Rome", "forecast_days": 1
+    })
     
-    pioggia_d2 = [p if p is not None else 0.0 for p in dati_det["hourly"].get("precipitation_icon_d2", [0]*24)]
-    pioggia_arome = [p if p is not None else 0.0 for p in dati_det["hourly"].get("precipitation_arome_france", [0]*24)]
+    dati_eps = fetch_api("https://ensemble-api.open-meteo.com/v1/ensemble", {
+        "latitude": LAT, "longitude": LON,
+        "hourly": "precipitation",
+        "models": "icon_d2",
+        "timezone": "Europe/Rome", "forecast_days": 1
+    })
 
-    print("🧮 Calcolo Media e Max sui 20 scenari EPS...")
-    pioggia_eps_media = []
-    pioggia_eps_max = []
+    if not dati or not dati_eps: sys.exit(1)
+
+    # Preparazione stringa dati per l'AI
+    report = f"Temp: Min {dati['daily']['temperature_2m_min'][0]}°C / Max {dati['daily']['temperature_2m_max'][0]}°C\n"
+    report += "Fascia | Pioggia (D2/AROME/EPS-Max) | Nubi | Vento\n"
     
+    orari = dati["hourly"]["time"]
     for i in range(24):
-        valori_ora_eps = []
-        for membro in range(1, 21):
-            chiave = f"precipitation_member{membro:02d}"
-            if chiave in dati_eps["hourly"]:
-                valore = dati_eps["hourly"][chiave][i]
-                if valore is not None:
-                    valori_ora_eps.append(valore)
-        
-        if valori_ora_eps:
-            media = sum(valori_ora_eps) / len(valori_ora_eps)
-            massimo = max(valori_ora_eps)
-            pioggia_eps_media.append(round(media, 2))
-            pioggia_eps_max.append(round(massimo, 2))
-        else:
-            pioggia_eps_media.append(0.0)
-            pioggia_eps_max.append(0.0)
+        # Media/Max semplificata per l'AI
+        eps_vals = [dati_eps["hourly"][f"precipitation_member{m:02d}"][i] or 0 for m in range(1,21)]
+        report += f"{orari[i][-5:]} | {dati['hourly']['precipitation_icon_d2'][i]}/{dati['hourly']['precipitation_arome_france'][i]}/{max(eps_vals):.1f} | {dati['hourly']['cloud_cover'][i]}% | {dati['hourly']['wind_speed_10m'][i]}km/h\n"
 
-    print("📊 Assemblaggio della Tabellona Dati per l'Intelligenza Artificiale...")
-    riassunto_dati = "Ora | ICON-D2 | AROME | EPS-Media | EPS-Max\n"
+    # Invio e output
+    bollettino = interpella_gemini(report)
     
-    for i in range(24):
-        ora = orari[i][-5:]
-        riassunto_dati += f"{ora} | {pioggia_d2[i]}mm | {pioggia_arome[i]}mm | {pioggia_eps_media[i]}mm | {pioggia_eps_max[i]}mm\n"
-        
-    print("🧠 Elaborazione analisi tramite Gemini 1.5 Flash...")
-    bollettino_narrativo = interpella_gemini(riassunto_dati)
-    
-    print("✈️ Invio della cronaca su Telegram...")
-    invia_telegram(bollettino_narrativo)
-    print("✅ Finito! EPS integrato con successo.")
+    token = os.getenv("TELEGRAM_TOKEN")
+    chat_id = os.getenv("TELEGRAM_CHAT_ID")
+    requests.post(f"https://api.telegram.org/bot{token}/sendMessage", 
+                  data={"chat_id": chat_id, "text": bollettino, "parse_mode": "Markdown"})
+    print("Bollettino inviato.")
 
 if __name__ == "__main__":
     main()
