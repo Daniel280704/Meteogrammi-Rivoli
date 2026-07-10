@@ -6,26 +6,14 @@ import sys
 LAT = 45.0716
 LON = 7.5157
 
-def fetch_weather_data():
-    # Nomi aggiornati! MeteoSwiss ora usa ICON-CH1/CH2. Aggiunto anche ICON-2I.
-    params = {
-        "latitude": LAT,
-        "longitude": LON,
-        "hourly": "precipitation",
-        "models": "icon_d2,arome_france,icon_ch1,icon_ch2,icon_2i",
-        "timezone": "Europe/Rome",
-        "forecast_days": 1
-    }
-    try:
-        resp = requests.get("https://api.open-meteo.com/v1/forecast", params=params, timeout=30)
-        resp.raise_for_status()
-        return resp.json()
-    except Exception as e:
-        print(f"❌ Errore API Meteo: {e}")
-        # Se l'API rifiuta la chiamata, stampiamo il vero motivo per capire chi ha causato l'errore
-        if hasattr(e, 'response') and e.response is not None:
-            print("Dettaglio errore:", e.response.text)
-        sys.exit(1)
+# Dizionario dei modelli: Nome per la lettura -> ID per l'API
+MODELLI = {
+    "ICON-D2": "icon_d2",
+    "AROME": "arome_france",
+    "ICON-CH1": "icon_ch1",
+    "ICON-CH2": "icon_ch2",
+    "ICON-2I": "icon_2i"
+}
 
 def interpella_gemini(dati_meteo):
     api_key = os.getenv("GEMINI_API_KEY")
@@ -36,7 +24,7 @@ def interpella_gemini(dati_meteo):
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
     
     prompt = f"""
-    Sei un meteorologo esperto e un divulgatore scientifico. Scrivi il bollettino meteo di nowcasting per oggi a Rivoli.
+    Sei un meteorologo esperto e un divulgatore scientifico. Scrivi il bollettino meteo di nowcasting per oggi a Rivoli (Piemonte).
     Il testo deve essere discorsivo, professionale ma accessibile, perfetto per essere letto da una community di decine di migliaia di appassionati. 
     Usa le emoji in modo appropriato.
 
@@ -46,10 +34,10 @@ def interpella_gemini(dati_meteo):
     - Sera (18-24)
     - Notte (00-06)
 
-    Ecco i millimetri di pioggia previsti ora per ora dai 5 modelli ad altissima risoluzione (ICON-D2, AROME, ICON-CH1, ICON-CH2, ICON-2I).
+    Ecco i millimetri di pioggia previsti ora per ora dai 5 modelli ad altissima risoluzione.
     Analizza i dati: se tutti i modelli prevedono pioggia in una fascia oraria, dichiara una probabilità altissima (es. 100%).
     Se solo alcuni la vedono (es. temporali termici isolati), parla di "previsione incerta" o "possibilità al X%".
-    Menziona i modelli per nome per dare autorevolezza tecnica. Non stampare la tabella dei dati grezzi, scrivi solo il bollettino.
+    Menziona i modelli per nome per dare autorevolezza tecnica. Non stampare la tabella dei dati grezzi, scrivi solo il bollettino narrativo.
 
     DATI GREZZI DEI MODELLI:
     {dati_meteo}
@@ -79,30 +67,60 @@ def invia_telegram(testo):
     requests.post(url, data=payload)
 
 def main():
-    print("📥 Scaricamento modelli meteo (D2, AROME, CH1, CH2, 2I)...")
-    dati_grezzi = fetch_weather_data()
+    print("📥 Scaricamento modelli meteo individuali (Multi-Threading simulato)...")
+    dati_modelli = {}
+    orari = []
     
-    orari = dati_grezzi["hourly"]["time"]
+    for nome, id_api in MODELLI.items():
+        print(f"   - Interrogo i server per {nome}...")
+        params = {
+            "latitude": LAT,
+            "longitude": LON,
+            "hourly": "precipitation",
+            "models": id_api,
+            "timezone": "Europe/Rome",
+            "forecast_days": 1
+        }
+        try:
+            resp = requests.get("https://api.open-meteo.com/v1/forecast", params=params, timeout=15)
+            resp.raise_for_status()
+            dati = resp.json()
+            
+            # Salviamo l'asse dei tempi solo la prima volta
+            if not orari:
+                orari = dati["hourly"]["time"]
+                
+            # Trova la chiave corretta della pioggia dinamicamente
+            chiavi_hourly = dati["hourly"].keys()
+            chiave_pioggia = next((k for k in chiavi_hourly if "precipitation" in k), "precipitation")
+            
+            dati_modelli[nome] = [p if p is not None else 0.0 for p in dati["hourly"][chiave_pioggia]]
+        except Exception as e:
+            print(f"   ⚠️ Errore o timeout con {nome}. Verrà impostato a zero per sicurezza. Dettaglio: {e}")
+            dati_modelli[nome] = [0.0] * 24
     
-    # Filtro Anti-Crash nel caso in cui un modello restituisca un dato vuoto
-    pioggia_d2 = [p if p is not None else 0.0 for p in dati_grezzi["hourly"]["precipitation_icon_d2"]]
-    pioggia_arome = [p if p is not None else 0.0 for p in dati_grezzi["hourly"]["precipitation_arome_france"]]
-    pioggia_ch1 = [p if p is not None else 0.0 for p in dati_grezzi["hourly"]["precipitation_icon_ch1"]]
-    pioggia_ch2 = [p if p is not None else 0.0 for p in dati_grezzi["hourly"]["precipitation_icon_ch2"]]
-    pioggia_2i = [p if p is not None else 0.0 for p in dati_grezzi["hourly"]["precipitation_icon_2i"]]
+    print("📊 Assemblaggio della Tabellona Dati...")
+    # Intestazione della tabella
+    riassunto_dati = "Ora | " + " | ".join(MODELLI.keys()) + "\n"
     
-    # Costruiamo la tabella che leggerà Gemini
-    riassunto_dati = "Ora | D2 | AROME | CH1 | CH2 | 2I\n"
-    for i in range(len(orari)):
-        ora = orari[i][-5:]
-        riassunto_dati += f"{ora} | {pioggia_d2[i]}mm | {pioggia_arome[i]}mm | {pioggia_ch1[i]}mm | {pioggia_ch2[i]}mm | {pioggia_2i[i]}mm\n"
-    
+    # Riempimento della tabella riga per riga
+    for i in range(24):
+        if i < len(orari):
+            ora = orari[i][-5:]
+        else:
+            ora = f"{i:02d}:00"
+            
+        riga = f"{ora} | "
+        valori = [f"{dati_modelli[m][i]}mm" if i < len(dati_modelli[m]) else "0.0mm" for m in MODELLI.keys()]
+        riga += " | ".join(valori)
+        riassunto_dati += riga + "\n"
+        
     print("🧠 Elaborazione analisi tramite Gemini 1.5 Flash...")
     bollettino_narrativo = interpella_gemini(riassunto_dati)
     
-    print("✈️ Invio su Telegram...")
+    print("✈️ Invio della cronaca su Telegram...")
     invia_telegram(bollettino_narrativo)
-    print("✅ Finito! Controlla Telegram.")
+    print("✅ Finito! Il meteorologo virtuale ha concluso il turno.")
 
 if __name__ == "__main__":
     main()
