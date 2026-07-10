@@ -1,0 +1,30 @@
+name: Bot Meteo Automazione
+
+on:
+  schedule:
+    # Orari in UTC (CEST - 2 ore). 
+    # Corrisponde a: 01:00, 04:00, 07:00, 10:00, 13:00, 16:00, 19:00, 22:00 (Ora Italiana Estiva)
+    - cron: '0 2,5,8,11,14,17,20,23 * * *'
+  workflow_dispatch: 
+
+jobs:
+  crea_e_invia_grafici:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Estrazione del Codice Sorgente
+        uses: actions/checkout@v3
+
+      - name: Setup di Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Installazione delle librerie
+        run: pip install requests matplotlib
+
+      - name: Generazione Grafici e Invio a Telegram
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python meteogramma_rivoli_gemini_13.py --modello d2
