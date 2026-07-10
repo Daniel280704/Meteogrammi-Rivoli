@@ -41,8 +41,8 @@ def interpella_gemini(dati_meteo):
     """
 
     try:
-        # Inizializziamo il modello (la libreria capisce in automatico il server corretto)
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        # Usiamo l'alias 'gemini-1.5-flash-latest' che è più robusto per le chiamate API
+        model = genai.GenerativeModel('gemini-1.5-flash-latest')
         
         response = model.generate_content(
             prompt,
