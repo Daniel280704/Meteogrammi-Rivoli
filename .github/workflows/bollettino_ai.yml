@@ -2,8 +2,8 @@ name: Cronaca Meteo AI
 
 on:
   schedule:
-    # Gira tutti i giorni alle 07:00 italiane (05:00 UTC)
-    - cron: '0 5 * * *'
+    # Gira tutti i giorni alle 06:00 italiane (04:00 UTC)
+    - cron: '0 4 * * *'
   workflow_dispatch: 
 
 jobs:
