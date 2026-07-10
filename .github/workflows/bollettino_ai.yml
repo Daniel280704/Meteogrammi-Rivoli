@@ -23,7 +23,7 @@ jobs:
         run: pip install requests
 
       - name: Installazione librerie
-        run: pip install requests google-generativeai
+        run: pip install -U google-generativeai requests
 
       - name: Genera e Invia Bollettino AI
         env:
