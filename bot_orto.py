@@ -2,7 +2,7 @@
 """
 Bot Agronomico per Ortive Estive
 Modello Unico: ICON-Seamless
-Versione: Anti-Crash + Suolo in Tempo Reale + Bilancio Pioggia Storica + Planning Serale
+Versione: Profondità Suolo Corretta (9-27cm) + Pioggia Reale Ultime 24h
 """
 
 import os
@@ -47,25 +47,27 @@ def invia_messaggio_telegram(testo):
 def main():
     print("🚀 Raccolta dati da ICON-Seamless...")
     
-    # Aggiunto past_days=1 per recuperare la pioggia di ieri
+    # Richiediamo la precipitazione oraria (per il calcolo delle 24h esatte) 
+    # e il nome corretto del suolo per ICON (9_to_27cm)
     icon_params = {
         "latitude": LAT, "longitude": LON,
         "models": "icon_seamless",
-        "hourly": "temperature_2m,relative_humidity_2m,soil_moisture_7_to_28cm",
-        "daily": "temperature_2m_max,temperature_2m_min,et0_fao_evapotranspiration,precipitation_sum",
+        "hourly": "temperature_2m,relative_humidity_2m,soil_moisture_9_to_27cm,precipitation",
+        "daily": "temperature_2m_max,temperature_2m_min,et0_fao_evapotranspiration",
         "timezone": "Europe/Rome",
         "forecast_days": 3,
         "past_days": 1
     }
     dati = fetch_data("https://api.open-meteo.com/v1/forecast", icon_params)
 
-    # Avendo 1 giorno di storico, "Oggi" inizia all'indice 24 per le ore e all'indice 1 per i giorni.
-    
+    # Troviamo l'indice dell'ora attuale (past_days=1 aggiunge 24 ore di storico)
+    ora_attuale_index = 24 + datetime.now().hour
+
     # --- 1. MODULO FITOSANITARIO (FUNGHI) ---
     ore_rischio = 0
-    # Prendiamo le 48 ore di previsione partendo da oggi (da ora 24 a 72)
-    temperature = dati["hourly"]["temperature_2m"][24:72]
-    umidita = dati["hourly"]["relative_humidity_2m"][24:72]
+    # Guardiamo le prossime 48 ore a partire da ADESSO, non da stanotte
+    temperature = dati["hourly"]["temperature_2m"][ora_attuale_index : ora_attuale_index + 48]
+    umidita = dati["hourly"]["relative_humidity_2m"][ora_attuale_index : ora_attuale_index + 48]
     
     for t, rh in zip(temperature, umidita):
         if t is not None and rh is not None:
@@ -80,35 +82,35 @@ def main():
         stato_funghi = f"🟢 <b>BASSO ({ore_rischio}h di bagnatura fogliare)</b>\n<i>Condizioni asciutte, basso rischio fungino.</i>"
 
     # --- 2. MODULO IRRIGAZIONE E SUOLO ---
-    # Indice 0 = Ieri, Indice 1 = Oggi, Indice 2 = Domani
-    pioggia_ieri_raw = dati["daily"]["precipitation_sum"][0]
+    
+    # 2A. Calcolo della pioggia VERA caduta nelle ultime 24 ore esatte
+    precip_data = dati["hourly"]["precipitation"][ora_attuale_index - 24 : ora_attuale_index]
+    pioggia_24h = sum(p for p in precip_data if p is not None)
+    pioggia_24h = round(pioggia_24h, 1)
+
+    # 2B. Umidità Radici in tempo reale (adesso con la profondità corretta)
+    umidita_raw = dati["hourly"]["soil_moisture_9_to_27cm"][ora_attuale_index]
+    umidita_suolo_radici = umidita_raw if umidita_raw is not None else 0.0
+
+    # 2C. Evapotraspirazione (Indice 1 è oggi, Indice 2 è domani)
     et_oggi_raw = dati["daily"]["et0_fao_evapotranspiration"][1]
     et_domani_raw = dati["daily"]["et0_fao_evapotranspiration"][2]
-    
-    # Troviamo l'ora esatta di adesso (sommando le 24 ore di ieri)
-    ora_attuale_index = 24 + datetime.now().hour
-    umidita_raw = dati["hourly"]["soil_moisture_7_to_28cm"][ora_attuale_index]
-    
-    pioggia_ieri = pioggia_ieri_raw if pioggia_ieri_raw is not None else 0.0
     et_oggi = et_oggi_raw if et_oggi_raw is not None else 0.0
     et_domani = et_domani_raw if et_domani_raw is not None else 0.0
-    umidita_suolo_radici = umidita_raw if umidita_raw is not None else 0.0
     
     consiglio_idrico = ""
-    # Nuova logica: indicazioni specifiche per le irrigazioni serali
-    if pioggia_ieri >= 5.0:
-        consiglio_idrico = f"Ha piovuto abbondantemente ({pioggia_ieri} mm). <b>Stasera irrigazione sospesa</b> per non causare asfissia radicale alle zucchine e marciumi."
-    elif pioggia_ieri > 1.0:
-        consiglio_idrico = f"Pioggia leggera recente ({pioggia_ieri} mm). <b>Stasera controlla il terreno</b> al tatto: irriga solo se la superficie risulta polverosa."
+    if pioggia_24h >= 5.0:
+        consiglio_idrico = f"Ha piovuto abbondantemente nelle ultime 24h ({pioggia_24h} mm). <b>Stasera irrigazione sospesa</b> per non causare asfissia radicale alle zucchine e marciumi."
+    elif pioggia_24h > 1.0:
+        consiglio_idrico = f"Pioggia leggera recente ({pioggia_24h} mm). <b>Stasera controlla il terreno</b> al tatto: irriga solo se la superficie risulta polverosa."
     else:
         if et_oggi > 5.0:
-            consiglio_idrico = "Forte evaporazione diurna. <b>Stasera irriga abbondantemente</b> zucchine e melanzane. Fai una bagnatura profonda sui pomodori (specialmente i cuori di bue)."
+            consiglio_idrico = "Terreno non bagnato da piogge e forte evaporazione. <b>Stasera irriga abbondantemente</b> zucchine e melanzane. Fai una bagnatura profonda sui pomodori (specie i cuori di bue)."
         elif et_oggi > 3.0:
-            consiglio_idrico = "Evaporazione nella norma. <b>Stasera mantieni un'irrigazione regolare</b>, senza eccessi per non far spaccare i datterini e pomodorini."
+            consiglio_idrico = "Evaporazione nella norma. <b>Stasera mantieni un'irrigazione regolare</b>, senza eccessi per non far spaccare i datterini."
         else:
             consiglio_idrico = "Evaporazione bassa. <b>Stasera puoi sospendere l'acqua</b> se il terreno risulta già umido al tatto nei primi 10cm."
 
-    # Aggiunta di un alert per pianificare la sera successiva
     if et_domani > 5.0:
         consiglio_idrico += f"\n🕒 <i>Anticipazione: preparati per <b>domani sera</b>. Prevista forte evaporazione ({et_domani} mm), servirà parecchia acqua.</i>"
     elif et_domani <= 3.0:
@@ -136,9 +138,9 @@ def main():
         f"📅 <i>{data_oggi}</i>\n\n"
         
         f"💧 <b>IRRIGAZIONE E BILANCIO IDRICO</b>\n"
-        f"• Pioggia ieri: <b>{pioggia_ieri} mm</b>\n"
+        f"• Pioggia ultime 24h: <b>{pioggia_24h} mm</b>\n"
         f"• Evapotraspirazione oggi: <b>{et_oggi} mm</b>\n"
-        f"• Umidità radici attuale: <b>{umidita_suolo_radici:.3f} m³/m³</b>\n"
+        f"• Umidità radici (9-27cm): <b>{umidita_suolo_radici:.3f} m³/m³</b>\n"
         f"💡 <i>{consiglio_idrico}</i>\n\n"
         
         f"🦠 <b>ALLERTA FUNGHI (Prossime 48h)</b>\n"
