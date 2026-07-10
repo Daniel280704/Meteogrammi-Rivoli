@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Bot Agronomico per Ortive Estive
-Modelli: ICON-Seamless (Fitosaniario/Termico) + ECMWF (Idrico/Suolo)
+Modelli: ICON-Seamless (Fitosaniario/Termico/ET0) + ECMWF (Idrico/Suolo)
 Versione: Anti-Crash (Gestione dei dati None)
 """
 
@@ -47,22 +47,21 @@ def invia_messaggio_telegram(testo):
 def main():
     print("🚀 Raccolta dati da ICON-Seamless e ECMWF...")
     
-    # Dati per malattie e insetti (ICON)
+    # Dati per malattie, insetti ed Evapotraspirazione (ICON)
     icon_params = {
         "latitude": LAT, "longitude": LON,
         "models": "icon_seamless",
         "hourly": "temperature_2m,relative_humidity_2m",
-        "daily": "temperature_2m_max,temperature_2m_min",
+        "daily": "temperature_2m_max,temperature_2m_min,et0_fao_evapotranspiration",
         "timezone": "Europe/Rome",
         "forecast_days": 3
     }
     icon_data = fetch_data("https://api.open-meteo.com/v1/forecast", icon_params)
     
-    # Dati per irrigazione e suolo (ECMWF)
+    # Dati per umidità profonda del suolo (ECMWF)
     ecmwf_params = {
         "latitude": LAT, "longitude": LON,
         "models": "ecmwf_ifs04",
-        "daily": "et0_fao_evapotranspiration",
         "hourly": "soil_moisture_7_to_28cm",
         "timezone": "Europe/Rome",
         "forecast_days": 3
@@ -75,7 +74,6 @@ def main():
     umidita = icon_data["hourly"]["relative_humidity_2m"][:48]
     
     for t, rh in zip(temperature, umidita):
-        # Filtro di sicurezza per evitare errori se t o rh sono None
         if t is not None and rh is not None:
             if rh >= 88 and 15 <= t <= 25:
                 ore_rischio += 1
@@ -88,9 +86,9 @@ def main():
         stato_funghi = f"🟢 <b>BASSO ({ore_rischio}h di bagnatura fogliare)</b>\n<i>Condizioni asciutte, basso rischio fungino.</i>"
 
     # --- 2. MODULO IRRIGAZIONE ---
-    # Estrazione con filtro Anti-Crash
-    et_oggi_raw = ecmwf_data["daily"]["et0_fao_evapotranspiration"][0]
-    et_domani_raw = ecmwf_data["daily"]["et0_fao_evapotranspiration"][1]
+    # Estrazione con ICON per ET0, ECMWF per suolo
+    et_oggi_raw = icon_data["daily"]["et0_fao_evapotranspiration"][0]
+    et_domani_raw = icon_data["daily"]["et0_fao_evapotranspiration"][1]
     umidita_raw = ecmwf_data["hourly"]["soil_moisture_7_to_28cm"][12]
     
     et_oggi = et_oggi_raw if et_oggi_raw is not None else 0.0
