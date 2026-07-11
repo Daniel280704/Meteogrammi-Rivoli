@@ -212,7 +212,7 @@ def main():
             giorni[data_chiave] = []
         giorni[data_chiave].append(i)
 
-    messaggio_telegram = "🌩 **ANALISI RISCHIO CONVETTIVO (ICON-D2)**\n\n"
+    messaggio_telegram = "🌩 **ANALISI RISCHIO TEMPORALESCO**\n\n"
     innesco_trovato = False
 
     for data_str, indici in giorni.items():
@@ -290,8 +290,7 @@ def main():
         print(f"[{giorno_formattato}] Energia e Pioggia confermate. Generazione responso AI...")
         responso = interpella_gemini(report_dati, giorno_formattato, stima_g)
         
-        messaggio_telegram += f"📅 **Previsione {giorno_formattato} (Picco instabilità: ore {ora_picco})**\n"
-        messaggio_telegram += f"🌡 **Parametri Base:** CAPE {formatta_sicuro(max_cape, '{:.0f}')} J/kg | Shear {formatta_sicuro(deep_layer_shear, '{:.1f}')} m/s\n"
+        messaggio_telegram += f"📅 **Previsione {giorno_formattato}\n"
         messaggio_telegram += f"🧊 **Potenziale Grandine:** {stima_g}\n\n"
         messaggio_telegram += f"{responso}\n\n➖➖➖➖➖➖➖➖➖➖\n\n"
 
