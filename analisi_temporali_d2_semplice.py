@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
 """
 Analizzatore Meteo per Rivoli (TO) - Versione "Previsore Amichevole"
-Modello: ICON-D2
-- Analisi basata su dati tecnici (nascosti all'utente)
-- Linguaggio semplice, cauto e divulgativo
+Analisi probabilistica dei rischi (pioggia, vento, grandine) senza orari.
 """
 
 import os
@@ -14,7 +12,7 @@ from datetime import datetime
 from google import genai
 from google.genai import types
 
-# Coordinate aggiornate
+# Coordinate esatte
 LAT = 45.0734521841099
 LON = 7.543386286825349
 
@@ -82,7 +80,7 @@ def magnitudo_shear(u1, v1, u2, v2):
 def stima_grandine_semplice(cape, dls, lapse_rate, zero_termico):
     if None in (cape, dls, lapse_rate, zero_termico): return "Non valutabile"
     if cape < 500: return "nessuna grandine significativa"
-    if zero_termico > 4200 and cape < 1200 and dls < 12: return "nessuna grandine, poiché si scioglierebbe prima di toccare terra"
+    if zero_termico > 4200 and cape < 1200 and dls < 12: return "nessuna grandine, si scioglierebbe prima di arrivare a terra"
     if cape >= 1500 and (dls >= 20 or lapse_rate >= 7.0): return "grandine di dimensioni medio-grandi"
     if cape >= 1000 and dls >= 12: return "possibile grandine di medie dimensioni"
     if cape >= 500 and dls < 12: return "possibile grandine di piccole dimensioni"
@@ -93,20 +91,20 @@ def interpella_gemini(report_tecnico, stima_grandine):
     client = genai.Client(api_key=api_key)
     
     prompt = f"""
-    Sei un meteorologo esperto che parla a cittadini di Rivoli.
-    Devi scrivere un breve avviso probabilistico.
+    Sei un meteorologo esperto che scrive per i cittadini di Rivoli. 
+    Analizza i dati che ti passo e scrivi un bollettino di allerta amichevole.
     
-    DATI TECNICI DA TRADURRE: {report_tecnico}
+    DATI: {report_tecnico}
     STIMA GRANDINE: {stima_grandine}
 
-    REGOLE DI SCRITTURA:
-    1. NON dare per certo l'evento. Usa sempre: "In caso di temporali", "È possibile che", "Qualora si attivasse la convezione".
-    2. NON usare termini tecnici come CAPE, Shear, J/kg o m/s.
-    3. Descrivi la fenomenologia attesa in modo discorsivo:
-       - Se l'umidità in quota è bassa e il vento forte, parla di "forti raffiche di vento improvvise".
-       - Se il gradiente termico è alto, parla di "potenziale per temporali intensi".
-       - Includi sempre la stima della grandine in modo semplice.
-    4. Stile: calmo, professionale ma alla portata di tutti. Massimmo 2 paragrafi.
+    REGOLE RIGOROSE:
+    1. NON usare orari, ore del giorno o riferimenti a "picchi".
+    2. NON dare l'evento per certo. Usa sempre: "In caso di temporale", "Se dovessero svilupparsi fenomeni".
+    3. Analizza le criticità in base ai dati:
+       - Se l'energia (CAPE) è alta: menziona il rischio di nubifragi intensi.
+       - Se l'umidità a 700hPa è bassa e c'è vento: menziona il rischio di forti raffiche (downburst).
+       - Includi sempre la stima della grandine.
+    4. Stile: semplice, discorsivo, rassicurante ma attento. Massimo 2 paragrafi.
     """
     
     response = client.models.generate_content(model='gemini-3-flash-preview', contents=prompt)
@@ -125,7 +123,6 @@ def main():
     innesco = False
 
     for g, indici in giorni.items():
-        # Filtro: almeno un segnale nelle ENS (0.05 mm media è un segnale reale)
         if pioggia_ens.get(g, 0) < 0.05: continue
         
         idx = max((i for i in indici if 12 <= datetime.fromisoformat(hourly['time'][i]).hour <= 20), 
@@ -138,8 +135,8 @@ def main():
         u2, v2 = scomposizione_vettoriale(hourly['wind_speed_500hPa'][idx], hourly['wind_direction_500hPa'][idx])
         dls = magnitudo_shear(u1, v1, u2, v2)
         
-        # Passiamo i dati a Gemini senza mostrarli nell'output finale
-        report = f"Ora picco stimata: {datetime.fromisoformat(hourly['time'][idx]).strftime('%H:%M')}, CAPE: {hourly['cape'][idx]}, DLS: {dls}, Rh700: {hourly['relative_humidity_700hPa'][idx]}"
+        # Report senza orari
+        report = f"CAPE: {hourly['cape'][idx]}, Shear: {dls}, Rh700: {hourly['relative_humidity_700hPa'][idx]}"
         stima_g = stima_grandine_semplice(hourly['cape'][idx], dls, 6.5, hourly['freezing_level_height'][idx])
         
         testo = interpella_gemini(report, stima_g)
