@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
 """
 Meteogramma per Rivoli (TO) basato su modelli ICON e AROME.
-- Versione 13.3: Sync Anti-Spam (attende che SIA il deterministico CHE le ensemble siano aggiornati).
-- Estensione automatica a 3 giorni di calendario per D2 e AROME (copertura 48h reali).
-- Layout a tre livelli (6 pannelli EPS, 5 pannelli DET con Zero Termico, 4 pannelli per AROME).
-- Esclusione della richiesta di Zero Termico per l'API di AROME.
+- Versione 13.1 (Modificata): Estensione automatica a 3 giorni, layout a tre livelli.
+- Rimozione del Run dal titolo.
+- Rilevamento automatico di dati nuovi con badge "NUOVO" rosso sul grafico.
 - Sistema Anti-Crash con auto-retry per errore 503.
 - Integrazione Bot Telegram per invio automatico dei grafici generati.
 
 Uso:
-    python3 meteogramma_rivoli_gemini_13_bot.py --modello d2
+    python3 meteogramma_rivoli_gemini_13.py --modello d2
 """
 
 import argparse
@@ -82,30 +81,37 @@ VARIABILI = [
 SOGLIE_PIOGGIA_1H = [0.2, 1.0, 5.0]
 
 
-def stima_run_attuale(modello: str):
-    now_utc = datetime.now(timezone.utc)
-    ora_utc = now_utc.hour + now_utc.minute / 60.0
+def verifica_dati_nuovi(dati: dict, dati_det: dict, modello: str) -> bool:
+    """Verifica se i dati sono cambiati rispetto all'ultima esecuzione."""
+    is_ensemble = MODELLI[modello]["is_ensemble"]
     
-    if modello == "d2":
-        run_disponibili = [0, 3, 6, 9, 12, 15, 18, 21]
-        delay = 1.5 
-    elif modello == "arome":
-        run_disponibili = [0, 3, 6, 9, 12, 15, 18, 21]
-        delay = 2.0
-    elif modello == "icon2i":
-        run_disponibili = [0, 12]
-        delay = 3.5 
-    else:
-        run_disponibili = [0, 6, 12, 18]
-        delay = 2.5 if modello == "ch2" else 2.0
-        
-    run_stimato = run_disponibili[-1] 
-    for run in sorted(run_disponibili, reverse=True):
-        if ora_utc >= (run + delay):
-            run_stimato = run
-            break
+    # Creiamo un'impronta (hash) basata sulle temperature del deterministico
+    hash_det_attuale = hashlib.md5(str(dati_det["hourly"]["temperature_2m"]).encode('utf-8')).hexdigest()
+    
+    # E una per l'ensemble (se esiste)
+    hash_ens_attuale = "NO_ENS"
+    if is_ensemble:
+        hash_ens_attuale = hashlib.md5(str(dati["hourly"]["temperature_2m"]).encode('utf-8')).hexdigest()
+
+    file_hash = f"ultimo_hash_{modello}.txt"
+    is_nuovo = True
+
+    if os.path.exists(file_hash):
+        with open(file_hash, "r") as f:
+            linee = f.read().strip().split('\n')
+            hash_det_salvato = linee[0] if len(linee) > 0 else ""
+            hash_ens_salvato = linee[1] if len(linee) > 1 else "NO_ENS"
             
-    return run_stimato, f"{run_stimato:02d}Z"
+            # Se entrambi gli hash sono identici a quelli salvati, i dati non sono cambiati
+            if hash_det_attuale == hash_det_salvato and hash_ens_attuale == hash_ens_salvato:
+                is_nuovo = False
+
+    # Salviamo sempre il nuovo hash se i dati sono cambiati
+    if is_nuovo:
+        with open(file_hash, "w") as f:
+            f.write(f"{hash_det_attuale}\n{hash_ens_attuale}")
+
+    return is_nuovo
 
 
 def fetch_con_retry(url: str, params: dict, max_retries: int = 3) -> dict:
@@ -160,46 +166,6 @@ def fetch_deterministico(lat: float, lon: float, giorni: int, modello: str) -> d
     return fetch_con_retry(FORECAST_URL, params)
 
 
-def verifica_dati_nuovi(dati: dict, dati_det: dict, modello: str) -> bool:
-    """Controlla se SIA il deterministico CHE l'ensemble sono aggiornati rispetto all'ultimo grafico."""
-    is_ensemble = MODELLI[modello]["is_ensemble"]
-    
-    # Hash del deterministico
-    hash_det_attuale = hashlib.md5(str(dati_det["hourly"]["temperature_2m"]).encode('utf-8')).hexdigest()
-    
-    # Hash dell'ensemble (se previsto)
-    hash_ens_attuale = "NO_ENS"
-    if is_ensemble:
-        # Passiamo l'intero dizionario orario delle ensemble per una sicurezza del 100%
-        hash_ens_attuale = hashlib.md5(str(dati["hourly"]).encode('utf-8')).hexdigest()
-
-    file_hash = f"ultimo_hash_{modello}.txt"
-    
-    if os.path.exists(file_hash):
-        with open(file_hash, "r") as f:
-            linee = f.read().strip().split('\n')
-            hash_det_salvato = linee[0] if len(linee) > 0 else ""
-            hash_ens_salvato = linee[1] if len(linee) > 1 else "NO_ENS"
-            
-            if is_ensemble:
-                # Se il deterministico non è cambiato, blocca (dati vecchi)
-                if hash_det_attuale == hash_det_salvato:
-                    return False
-                # Se l'ensemble non è cambiato, blocca (il deterministico ha corso, ma l'EPS è in ritardo)
-                if hash_ens_attuale == hash_ens_salvato:
-                    return False
-            else:
-                # Modelli solo deterministici (es. AROME, ICON-2I)
-                if hash_det_attuale == hash_det_salvato:
-                    return False
-                    
-    # Se arriviamo qui, i dati sono freschi per entrambi i rami. Salviamo i nuovi hash.
-    with open(file_hash, "w") as f:
-        f.write(f"{hash_det_attuale}\n{hash_ens_attuale}")
-        
-    return True
-
-
 def raggruppa_membri(hourly: dict) -> dict:
     gruppi = defaultdict(dict)
     for chiave, valori in hourly.items():
@@ -245,10 +211,9 @@ def formatta_assi(ax, y_label_step=None, x_interval=1):
     ax.grid(which="minor", axis="y", alpha=0.15, linewidth=0.5)
 
 
-def plot_meteogramma(data: dict, dati_det: dict, out_path: str, modello: str, luogo: str = "Rivoli (TO)"):
+def plot_meteogramma(data: dict, dati_det: dict, out_path: str, modello: str, is_nuovo: bool, luogo: str = "Rivoli (TO)"):
     is_ensemble = MODELLI[modello]["is_ensemble"]
     has_zero = (modello != "arome")
-    run_utc_int, run_str = stima_run_attuale(modello)
     
     asse_temporale_base = data["hourly"]["time"] if is_ensemble else dati_det["hourly"]["time"]
     
@@ -326,9 +291,14 @@ def plot_meteogramma(data: dict, dati_det: dict, out_path: str, modello: str, lu
         sottotitolo = "Corsa singola deterministica ad altissima risoluzione geografica"
         
     fig.suptitle(
-        f"{nome_modello} — {luogo} (Quota griglia: {quota_modello} m) | Run: {run_str}\n{sottotitolo}",
+        f"{nome_modello} — {luogo} (Quota griglia: {quota_modello} m)\n{sottotitolo}",
         fontsize=13, fontweight="bold",
     )
+
+    # Stampa il badge "NUOVO" in alto a sinistra se i dati sono cambiati
+    if is_nuovo:
+        fig.text(0.01, 0.99, " NUOVO ", color="red", fontsize=14, fontweight="bold", 
+                 ha="left", va="top", bbox=dict(facecolor='white', alpha=0.9, edgecolor='red', boxstyle='round,pad=0.2'))
 
     if is_ensemble:
         membri = gruppi.get("temperature_2m", {})
@@ -439,7 +409,7 @@ def plot_meteogramma(data: dict, dati_det: dict, out_path: str, modello: str, lu
 
     plt.tight_layout(rect=[0, 0.02, 1, 0.96])
     plt.savefig(out_path, dpi=150)
-    print(f"Meteogramma salvato in: {out_path}\n")
+    print(f"Meteogramma salvato in: {out_path}")
 
 
 def invia_telegram(percorso_file: str, didascalia: str):
@@ -479,12 +449,16 @@ def main():
         print(f"❌ Elaborazione interrotta per il modello {args.modello.upper()}: {e}", file=sys.stderr)
         sys.exit(1)
 
-    # --- CONTROLLO IMPRONTA DIGITALE SINCRONIZZATO ---
-    if not verifica_dati_nuovi(dati, dati_det, args.modello):
-        print(f"ℹ️ I dati di {args.modello.upper()} non sono del tutto allineati (Ensemble o Det ancora vecchi). Grafico saltato.")
-        sys.exit(0)
+    # Verifica se i dati sono cambiati rispetto all'ultima volta
+    is_nuovo = verifica_dati_nuovi(dati, dati_det, args.modello)
+    
+    if is_nuovo:
+        print(f"ℹ️ Trovati dati aggiornati per il modello {args.modello.upper()}.")
+    else:
+        print(f"ℹ️ Nessun aggiornamento trovato per {args.modello.upper()} rispetto all'ultimo grafico.")
 
-    plot_meteogramma(dati, dati_det, out_path, args.modello)
+    # Genera il grafico e passa il flag 'is_nuovo' per aggiungere o meno il badge
+    plot_meteogramma(dati, dati_det, out_path, args.modello, is_nuovo)
     
     # --- Invio Telegram ---
     ora_esecuzione = datetime.now().strftime("%d/%m/%Y %H:%M")
