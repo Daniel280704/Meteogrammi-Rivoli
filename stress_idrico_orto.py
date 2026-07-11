@@ -114,20 +114,20 @@ def genera_messaggio(bilancio_totale, bilancio_passato, pioggia_72h, et0_72h, pi
     if t_max_prevista >= 32:
         avviso_calore = f"\n\n⚠️ **Allerta Calore:** Previsti picchi fino a {t_max_prevista:.1f}°C nelle prossime 48 ore."
 
-    messaggio = f"""🌱 **BOLLETTINO SUOLO (ICON EPS)** 🌱
+    messaggio = f"""🌱 **BOLLETTINO SUOLO** 🌱
 📍 Rivoli (TO)
 
 {stato}
 
-🔙 **STORICO RECENTE:**
-🌧️ Pioggia caduta (ultime 72h): {pioggia_72h:.1f} mm
-☀️ Evaporazione suolo (ultime 72h): {et0_72h:.1f} mm
+🔙 **STORICO RECENTE (ultime 72 ore):**
+🌧️ Pioggia caduta: {pioggia_72h:.1f} mm
+☀️ Evaporazione suolo: {et0_72h:.1f} mm
 ⚖️ Bilancio effettivo attuale: {bilancio_passato:.1f} mm
 
 🔜 **PROSSIME 48 ORE:**
-🌧️ Pioggia prevista (Media EPS): {pioggia_prevista:.1f} mm
+🌧️ Pioggia prevista: {pioggia_prevista:.1f} mm
 ☀️ Evaporazione prevista: {et0_prevista:.1f} mm
-📈 Bilancio Totale Stimato: {bilancio_totale:.1f} mm
+📈 Bilancio totale stimato: {bilancio_totale:.1f} mm
 
 📊 **TENDENZA STRESS IDRICO:** {tendenza_stress}{avviso_calore}"""
 
