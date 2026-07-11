@@ -19,11 +19,11 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.10'
+          python-version: '3.11' # Aggiornato a Python 3.11
 
       - name: Installa dipendenze
-        # Oltre a requests, qui ci serve anche il pacchetto di Google per Gemini
-        run: pip install requests google-generativeai
+        # Sostituito il vecchio SDK con il nuovo "google-genai"
+        run: pip install requests google-genai
 
       - name: Esegui Script Analisi Temporali
         env:
