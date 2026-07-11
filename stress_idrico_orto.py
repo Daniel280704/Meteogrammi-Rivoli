@@ -4,8 +4,8 @@ import requests
 import sys
 from datetime import datetime, timezone
 
-LAT_RIVOLI = 45.0716
-LON_RIVOLI = 7.5157
+LAT_RIVOLI = 45.06212957744542
+LON_RIVOLI = 7.5336149995703625
 
 def calcola_bilancio_idrico():
     print("Scaricamento dati agrometeorologici orari (ICON-D2) in corso...")
