@@ -59,9 +59,9 @@ def calcola_bilancio_idrico():
     # BILANCIO TOTALE
     bilancio_totale = bilancio_passato + pioggia_prevista_36h - et0_prevista_36h
 
-    return bilancio_totale, bilancio_passato, pioggia_72h, et0_48h, pioggia_prevista_36h, t_max_prevista
+    return bilancio_totale, bilancio_passato, pioggia_72h, et0_48h, pioggia_prevista_36h, et0_prevista_36h, t_max_prevista
 
-def genera_messaggio(bilancio_totale, bilancio_passato, pioggia_72h, et0_48h, pioggia_prevista, t_max_prevista):
+def genera_messaggio(bilancio_totale, bilancio_passato, pioggia_72h, et0_48h, pioggia_prevista, et0_prevista, t_max_prevista):
     
     # Classificazione essenziale dello stress idrico
     if bilancio_totale <= -15:
@@ -87,6 +87,7 @@ def genera_messaggio(bilancio_totale, bilancio_passato, pioggia_72h, et0_48h, pi
 
 🔜 **PROSSIME 36 ORE:**
 🌧️ Pioggia prevista: {pioggia_prevista:.1f} mm
+☀️ Evaporazione prevista (36h): {et0_prevista:.1f} mm
 📈 Bilancio Totale Stimato: {bilancio_totale:.1f} mm{avviso_calore}"""
 
     return messaggio
@@ -107,8 +108,8 @@ def invia_telegram(messaggio):
         print(f"❌ Errore invio Telegram: {e}")
 
 def main():
-    bilancio_totale, bilancio_passato, pioggia_72h, et0_48h, pioggia_prevista, t_max_prevista = calcola_bilancio_idrico()
-    messaggio = genera_messaggio(bilancio_totale, bilancio_passato, pioggia_72h, et0_48h, pioggia_prevista, t_max_prevista)
+    bilancio_totale, bilancio_passato, pioggia_72h, et0_48h, pioggia_prevista, et0_prevista, t_max_prevista = calcola_bilancio_idrico()
+    messaggio = genera_messaggio(bilancio_totale, bilancio_passato, pioggia_72h, et0_48h, pioggia_prevista, et0_prevista, t_max_prevista)
     print(messaggio)
     invia_telegram(messaggio)
 
