@@ -2,77 +2,92 @@
 import os
 import requests
 import sys
+from datetime import datetime, timezone
 
 LAT_RIVOLI = 45.0716
 LON_RIVOLI = 7.5157
 
 def calcola_bilancio_idrico():
-    print("Scaricamento dati agrometeorologici (ICON-D2) in corso...")
+    print("Scaricamento dati agrometeorologici orari (ICON-D2) in corso...")
     try:
         res = requests.get("https://api.open-meteo.com/v1/forecast", params={
             "latitude": LAT_RIVOLI,
             "longitude": LON_RIVOLI,
-            "daily": "precipitation_sum,et0_fao_evapotranspiration_sum,temperature_2m_max",
-            "models": "icon_d2",  # FORZATURA SU ICON-D2
-            "past_days": 3,
-            "forecast_days": 3,
-            "timezone": "Europe/Rome"
+            "hourly": "precipitation,et0_fao_evapotranspiration,temperature_2m",
+            "models": "icon_d2",
+            "past_days": 4,  
+            "forecast_days": 3, 
+            "timezone": "UTC"
         }, timeout=30)
         res.raise_for_status()
-        dati = res.json()["daily"]
+        dati = res.json()["hourly"]
     except Exception as e:
         print(f"❌ Errore nel download dei dati: {e}")
         sys.exit(1)
 
-    pioggia = dati["precipitation_sum"]
-    evapotraspirazione = dati["et0_fao_evapotranspiration_sum"]
-    t_max = dati["temperature_2m_max"]
-
-    # Passato (ieri, l'altroieri, e 3 giorni fa)
-    pioggia_passata = sum(pioggia[0:3])
-    et0_passata = sum(evapotraspirazione[0:3])
-    bilancio_passato = pioggia_passata - et0_passata
-
-    # Futuro (oggi e domani)
-    pioggia_prevista = sum(pioggia[3:5])
-    et0_prevista = sum(evapotraspirazione[3:5])
-    t_max_prevista = max(t_max[3:5])
-
-    # Bilancio totale stimato
-    bilancio_totale = bilancio_passato + pioggia_prevista - et0_prevista
-
-    return bilancio_totale, bilancio_passato, pioggia_prevista, t_max_prevista
-
-def genera_messaggio(bilancio_totale, bilancio_passato, pioggia_prevista, t_max_prevista):
+    now_utc = datetime.now(timezone.utc)
+    current_time_str = now_utc.strftime("%Y-%m-%dT%H:00")
     
+    times = dati["time"]
+    try:
+        current_idx = times.index(current_time_str)
+    except ValueError:
+        print("⚠️ Ora attuale non trovata, uso approssimazione.")
+        current_idx = 4 * 24 
+    
+    pioggia = dati["precipitation"]
+    et0 = dati["et0_fao_evapotranspiration"]
+    temp = dati["temperature_2m"]
+
+    start_72h = max(0, current_idx - 72)
+    start_48h = max(0, current_idx - 48)
+    end_36h = min(len(pioggia), current_idx + 36)
+
+    # DATI PASSATI STORICI
+    pioggia_72h = sum(pioggia[start_72h:current_idx])
+    et0_48h = sum(et0[start_48h:current_idx])
+    et0_72h = sum(et0[start_72h:current_idx]) 
+    bilancio_passato = pioggia_72h - et0_72h
+
+    # DATI PREVISTI 
+    pioggia_prevista_36h = sum(pioggia[current_idx:end_36h])
+    et0_prevista_36h = sum(et0[current_idx:end_36h])
+    
+    array_temp_future = temp[current_idx:end_36h]
+    t_max_prevista = max(array_temp_future) if array_temp_future else 0
+
+    # BILANCIO TOTALE
+    bilancio_totale = bilancio_passato + pioggia_prevista_36h - et0_prevista_36h
+
+    return bilancio_totale, bilancio_passato, pioggia_72h, et0_48h, pioggia_prevista_36h, t_max_prevista
+
+def genera_messaggio(bilancio_totale, bilancio_passato, pioggia_72h, et0_48h, pioggia_prevista, t_max_prevista):
+    
+    # Classificazione essenziale dello stress idrico
     if bilancio_totale <= -15:
-        stato = "🔴 **STRESS IDRICO ELEVATO**"
-        consiglio = "Il terreno ha accumulato un forte deficit. Le colture ad alta richiesta idrica e a pieno sviluppo (come pomodori, zucchine e peperoncini) necessitano di irrigazioni profonde e abbondanti. Fai molta attenzione anche alle piante a radice più superficiale (come basilico e lattuga), che rischiano di disidratarsi o andare a seme rapidamente."
+        stato = "🔴 **ALTO STRESS IDRICO**"
     elif bilancio_totale <= -5:
-        stato = "🟡 **STRESS IDRICO MODERATO**"
-        consiglio = "Il bilancio è in negativo. Consigliata un'irrigazione di mantenimento mirata alla base delle piante, utile specialmente per i fagioli e le colture da foglia, da effettuare preferibilmente la sera tardi o all'alba."
-    elif bilancio_totale < 5:
-        stato = "🟢 **EQUILIBRIO IDRICO**"
-        consiglio = "L'umidità del suolo è su livelli adeguati. Non sono necessarie irrigazioni abbondanti, al massimo leggeri interventi di soccorso se la superficie appare visivamente molto secca."
+        stato = "🟡 **STRESS IDRICO INTERMEDIO**"
     else:
-        stato = "🔵 **SURPLUS IDRICO**"
-        consiglio = "Il terreno è ben bagnato dalle precipitazioni. Sospendere le irrigazioni per evitare marciumi radicali e malattie fungine."
+        stato = "🟢 **SCARSO O NULLO STRESS IDRICO**"
 
     avviso_calore = ""
     if t_max_prevista >= 32:
-        avviso_calore = f"\n\n⚠️ **Allerta Calore:** Previste massime fino a {t_max_prevista}°C. Aumenta lo spessore della pacciamatura, se possibile, per limitare l'evaporazione dal suolo."
+        avviso_calore = f"\n\n⚠️ **Allerta Calore:** Previsti picchi fino a {t_max_prevista:.1f}°C nelle prossime 36 ore."
 
-    messaggio = f"""🌱 **BOLLETTINO ORTO E SUOLO (ICON-D2)** 🌱
+    messaggio = f"""🌱 **BOLLETTINO SUOLO (ICON-D2)** 🌱
 📍 Rivoli (TO)
 
 {stato}
 
-💧 **Bilancio ultimi 3 giorni:** {bilancio_passato:.1f} mm
-🌧️ **Pioggia prevista (48h):** {pioggia_prevista:.1f} mm
-📊 **Deficit/Surplus Totale:** {bilancio_totale:.1f} mm
+🔙 **STORICO RECENTE:**
+🌧️ Pioggia caduta (ultime 72h): {pioggia_72h:.1f} mm
+☀️ Evaporazione suolo (ultime 48h): {et0_48h:.1f} mm
+⚖️ Bilancio effettivo 3 giorni: {bilancio_passato:.1f} mm
 
-🧑‍🌾 **Consigli Operativi:**
-{consiglio}{avviso_calore}"""
+🔜 **PROSSIME 36 ORE:**
+🌧️ Pioggia prevista: {pioggia_prevista:.1f} mm
+📈 Bilancio Totale Stimato: {bilancio_totale:.1f} mm{avviso_calore}"""
 
     return messaggio
 
@@ -92,8 +107,8 @@ def invia_telegram(messaggio):
         print(f"❌ Errore invio Telegram: {e}")
 
 def main():
-    bilancio_totale, bilancio_passato, pioggia_prevista, t_max_prevista = calcola_bilancio_idrico()
-    messaggio = genera_messaggio(bilancio_totale, bilancio_passato, pioggia_prevista, t_max_prevista)
+    bilancio_totale, bilancio_passato, pioggia_72h, et0_48h, pioggia_prevista, t_max_prevista = calcola_bilancio_idrico()
+    messaggio = genera_messaggio(bilancio_totale, bilancio_passato, pioggia_72h, et0_48h, pioggia_prevista, t_max_prevista)
     print(messaggio)
     invia_telegram(messaggio)
 
