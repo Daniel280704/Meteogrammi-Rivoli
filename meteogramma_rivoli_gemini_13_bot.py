@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
 Meteogramma per Rivoli (TO) basato su modelli ICON e AROME.
-- Versione 13.2: Integrazione Ensemble PEARO per AROME (Météo-France EPS).
+- Versione 13.3: Integrazione Ibrida Ensemble PEARO per AROME (Météo-France EPS).
+- Scarica spaghi per T, Prec e Vento; fallback al deterministico per RH e Dew Point.
 - Estensione automatica a 3 giorni di calendario per D2 e AROME (copertura 48h reali).
 - Layout a tre livelli (6 pannelli EPS, 5 pannelli DET con Zero Termico, 4 pannelli per AROME).
 - Esclusione della richiesta di Zero Termico per l'API di AROME (sia det che eps).
@@ -9,7 +10,7 @@ Meteogramma per Rivoli (TO) basato su modelli ICON e AROME.
 - Integrazione Bot Telegram per invio automatico dei grafici generati.
 
 Uso:
-    python3 meteogramma_rivoli_gemini_13.py --modello arome
+    python3 meteogramma_rivoli_gemini_13_bot.py --modello arome
 """
 
 import argparse
@@ -132,9 +133,16 @@ def fetch_data(lat: float, lon: float, giorni: int, modello: str) -> dict:
     if not MODELLI[modello]["is_ensemble"]:
         return {"hourly": {"time": []}}
         
-    # Escludiamo lo zero termico per Arome EPS prima di inviare i parametri all'API
     vars_filtrate = list(VARIABILI)
-    if modello == "arome" and "freezing_level_height" in vars_filtrate:
+    
+    # Selettore specifico per le Ensemble francesi: chiediamo solo i parametri base supportati dall'API
+    if modello == "arome":
+        variabili_vietate_eps = ["freezing_level_height", "dew_point_2m", "relative_humidity_2m"]
+        for v in variabili_vietate_eps:
+            if v in vars_filtrate:
+                vars_filtrate.remove(v)
+    # Per gli altri modelli EPS, togliamo solo lo zero termico se non disponibile
+    elif modello == "arome" and "freezing_level_height" in vars_filtrate:
         vars_filtrate.remove("freezing_level_height")
         
     params = {
@@ -303,9 +311,14 @@ def plot_meteogramma(data: dict, dati_det: dict, out_path: str, modello: str, lu
         ax_temp.plot(tempi, media_temp, color="crimson", linewidth=2.2, linestyle="-", zorder=3, label="Media Temp.")
         ax_temp.plot(tempi_det, sanifica(hourly_det["temperature_2m"]), color="black", linewidth=1.6, linestyle="--", zorder=4, label="Temp. det.")
         
+        # LOGICA IBRIDA PER IL DEW POINT
         membri_dew = gruppi.get("dew_point_2m", {})
-        media_dew = calcola_media(membri_dew, n_punti)
-        ax_temp.plot(tempi, media_dew, color="darkcyan", linewidth=1.8, linestyle="-", zorder=5, label="Media Dew Point")
+        if membri_dew:
+            media_dew = calcola_media(membri_dew, n_punti)
+            ax_temp.plot(tempi, media_dew, color="darkcyan", linewidth=1.8, linestyle="-", zorder=5, label="Media Dew Point")
+        else:
+            # Fallback per AROME: usa il dato deterministico
+            ax_temp.plot(tempi_det, sanifica(hourly_det["dew_point_2m"]), color="darkcyan", linewidth=1.8, linestyle="-", zorder=5, label="Dew Point det.")
     else:
         ax_temp.plot(tempi_det, sanifica(hourly_det["temperature_2m"]), color="crimson", linewidth=2.5, zorder=4, label="Temperatura")
         ax_temp.plot(tempi_det, sanifica(hourly_det["dew_point_2m"]), color="darkcyan", linewidth=1.8, linestyle="-", zorder=5, label="Dew Point")
@@ -363,12 +376,17 @@ def plot_meteogramma(data: dict, dati_det: dict, out_path: str, modello: str, lu
     formatta_assi(ax_wind, passo_y["wind_speed_10m"], x_interval)
 
     if is_ensemble:
+        # LOGICA IBRIDA PER L'UMIDITA' RELATIVA
         membri_rh = gruppi.get("relative_humidity_2m", {})
-        for valori in membri_rh.values():
-            ax_rh.plot(tempi, sanifica(valori), color="gray", alpha=0.35, linewidth=0.8, zorder=1)
-        media_rh = calcola_media(membri_rh, n_punti)
-        ax_rh.plot(tempi, media_rh, color="purple", linewidth=2.2, linestyle="-", zorder=3, label="Media ensemble")
-        ax_rh.plot(tempi_det, sanifica(hourly_det["relative_humidity_2m"]), color="black", linewidth=1.6, linestyle="--", zorder=4, label="Run deterministico")
+        if membri_rh:
+            for valori in membri_rh.values():
+                ax_rh.plot(tempi, sanifica(valori), color="gray", alpha=0.35, linewidth=0.8, zorder=1)
+            media_rh = calcola_media(membri_rh, n_punti)
+            ax_rh.plot(tempi, media_rh, color="purple", linewidth=2.2, linestyle="-", zorder=3, label="Media ensemble")
+            ax_rh.plot(tempi_det, sanifica(hourly_det["relative_humidity_2m"]), color="black", linewidth=1.6, linestyle="--", zorder=4, label="Run deterministico")
+        else:
+            # Fallback per AROME: usa il dato deterministico
+            ax_rh.plot(tempi_det, sanifica(hourly_det["relative_humidity_2m"]), color="purple", linewidth=2.5, zorder=4, label="Umidità Relativa det.")
     else:
         ax_rh.plot(tempi_det, sanifica(hourly_det["relative_humidity_2m"]), color="purple", linewidth=2.5, zorder=4, label="Umidità Relativa")
         
