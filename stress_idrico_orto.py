@@ -5,7 +5,6 @@ import sys
 import json
 from datetime import datetime, timedelta
 
-# Gestione sicura del fuso orario di Roma (utile per i server UTC di GitHub)
 try:
     from zoneinfo import ZoneInfo
 except ImportError:
@@ -18,7 +17,7 @@ def get_rome_time():
     try:
         return datetime.now(ZoneInfo("Europe/Rome"))
     except:
-        return datetime.utcnow() + timedelta(hours=2) # Approssimazione per ora estiva
+        return datetime.utcnow() + timedelta(hours=2)
 
 def controlla_pulsante_telegram(token):
     """Verifica se l'utente ha premuto il tasto di innaffiatura manuale."""
@@ -44,31 +43,38 @@ def controlla_pulsante_telegram(token):
                         requests.post(f"https://api.telegram.org/bot{token}/answerCallbackQuery", 
                                       data={"callback_query_id": cb_id, "text": "Memoria irrigazione aggiornata!"})
                         
+                        # Salviamo la data dell'innaffiatura
                         with open("ultima_innaffiatura.txt", "w") as f:
-                            f.write(datetime.now().isoformat())
+                            f.write(get_rome_time().strftime("%Y-%m-%d"))
             
             with open("tg_offset_orto.txt", "w") as f:
                 f.write(str(offset))
     except Exception as e:
         print(f"Errore lettura Telegram API: {e}")
 
-def valuta_stress(bilancio, pioggia_reale):
-    """Calcola lo stress idrico forzando lo stato nullo se ha piovuto in modo significativo."""
-    if pioggia_reale >= 5.0:
+def valuta_stress(bilancio):
+    """
+    Calcola lo stress in base alla sommatoria dell'evaporazione netta (deficit).
+    Meno di 5: Nullo, 5-15: Intermedio, 15-20: Alto, >20: Estremo.
+    """
+    deficit = -bilancio  # Trasforma il bilancio negativo in deficit positivo
+    
+    if deficit < 5.0:
         return "🟢 SCARSO O NULLO"
-    elif bilancio <= -15:
-        return "🔴 ALTO"
-    elif bilancio <= -5:
+    elif deficit <= 15.0:
         return "🟡 INTERMEDIO"
+    elif deficit <= 20.0:
+        return "🔴 ALTO"
     else:
-        return "🟢 SCARSO O NULLO"
+        return "🟣 ESTREMO"
 
-def calcola_dati_orto(forza_azzeramento):
+def calcola_dati_orto():
+    # Chiediamo ben 10 giorni di storico per avere una simulazione accurata del suolo
     api_params_det = {
         "latitude": LAT_RIVOLI, "longitude": LON_RIVOLI,
         "hourly": "precipitation,et0_fao_evapotranspiration",
         "models": "icon_seamless",
-        "past_days": 4, "forecast_days": 3, 
+        "past_days": 10, "forecast_days": 3, 
         "timezone": "Europe/Rome"
     }
     
@@ -85,11 +91,16 @@ def calcola_dati_orto(forza_azzeramento):
     times = dati_det["time"]
     now_rome = get_rome_time()
     
-    # Determinazione delle giornate di calendario
     oggi_str = now_rome.strftime("%Y-%m-%d")
     ieri_str = (now_rome - timedelta(days=1)).strftime("%Y-%m-%d")
     domani_str = (now_rome + timedelta(days=1)).strftime("%Y-%m-%d")
     dopo_str = (now_rome + timedelta(days=2)).strftime("%Y-%m-%d")
+
+    # Controlliamo in quale data è stato premuto il tasto Telegram
+    data_reset_manuale = None
+    if os.path.exists("ultima_innaffiatura.txt"):
+        with open("ultima_innaffiatura.txt", "r") as f:
+            data_reset_manuale = f.read().strip()
 
     def get_idx(time_str):
         try:
@@ -97,88 +108,99 @@ def calcola_dati_orto(forza_azzeramento):
         except ValueError:
             return None
 
-    # Isolamento degli intervalli orari esatti
-    idx_ieri_start = get_idx(f"{ieri_str}T00:00")
-    idx_ieri_end = get_idx(f"{ieri_str}T23:00")
-    idx_ieri_end = idx_ieri_end + 1 if idx_ieri_end else None
-
-    idx_oggi_start = get_idx(f"{oggi_str}T00:00")
-    idx_oggi_end = get_idx(f"{oggi_str}T18:00")
-    idx_oggi_end = idx_oggi_end + 1 if idx_oggi_end else None
-
-    idx_domani_start = get_idx(f"{domani_str}T00:00")
-    idx_domani_end = get_idx(f"{domani_str}T23:00")
-    idx_domani_end = idx_domani_end + 1 if idx_domani_end else None
-
-    idx_dopo_start = get_idx(f"{dopo_str}T00:00")
-    idx_dopo_end = get_idx(f"{dopo_str}T23:00")
-    idx_dopo_end = idx_dopo_end + 1 if idx_dopo_end else None
-
     p_det = dati_det["precipitation"]
     e_det = dati_det["et0_fao_evapotranspiration"]
 
-    # Base cumulativa per dare spessore al bilancio (guarda ai 3 giorni prima di ieri)
-    idx_base_start = max(0, idx_ieri_start - 72) if idx_ieri_start else 0
-    p_base = sum(p for p in p_det[idx_base_start:idx_ieri_start] if p is not None)
-    e_base = sum(e for e in e_det[idx_base_start:idx_ieri_start] if e is not None)
-    bil_base = p_base - e_base
-
-    # Ieri (esatte 24h)
-    p_ieri = sum(p for p in p_det[idx_ieri_start:idx_ieri_end] if p is not None)
-    e_ieri = sum(e for e in e_det[idx_ieri_start:idx_ieri_end] if e is not None)
-    bil_ieri = bil_base + p_ieri - e_ieri
+    # --- SIMULATORE STORICO IN MEMORIA ---
+    # Partiamo da 10 giorni fa e ricostruiamo la storia dell'orto giorno per giorno
+    bilancio = 0.0
     
-    # Oggi (esattamente da 00:00 alle 18:00)
-    p_oggi = sum(p for p in p_det[idx_oggi_start:idx_oggi_end] if p is not None)
-    e_oggi = sum(e for e in e_det[idx_oggi_start:idx_oggi_end] if e is not None)
-    bil_oggi = bil_ieri + p_oggi - e_oggi
+    for i in range(10, 0, -1):
+        data_storica = (now_rome - timedelta(days=i)).strftime("%Y-%m-%d")
+        idx_s = get_idx(f"{data_storica}T00:00")
+        idx_e = get_idx(f"{data_storica}T23:00")
+        
+        if idx_s is not None and idx_e is not None:
+            p_giorno = sum(p for p in p_det[idx_s:idx_e+1] if p is not None)
+            e_giorno = sum(e for e in e_det[idx_s:idx_e+1] if e is not None)
+            
+            bilancio += (p_giorno - e_giorno)
+            
+            # Se ha piovuto in modo utile (>3.5mm) o hai premuto il tasto, il terreno si satura (azzera deficit)
+            if p_giorno >= 3.5 or data_storica == data_reset_manuale:
+                bilancio = 0.0
+            
+            # Il terreno non può trattenere acqua infinita (se il bilancio va in positivo, l'eccesso drena)
+            if bilancio > 0.0:
+                bilancio = 0.0
 
-    # Override in caso di pressione manuale del tasto Telegram
-    if forza_azzeramento:
-        bil_ieri = 0
-        p_ieri = 10.0 
-        bil_oggi = 0
-        p_oggi = 10.0 
+            # Salviamo specificatamente i dati di IERI per il messaggio
+            if data_storica == ieri_str:
+                p_ieri = p_giorno
+                e_ieri = e_giorno
+                bil_ieri = bilancio
 
-    stress_ieri = valuta_stress(bil_ieri, p_ieri)
-    stress_oggi = valuta_stress(bil_oggi, p_oggi)
+    # --- OGGI (Prime 19 ore: 00:00 -> 18:00 inclusive) ---
+    idx_oggi_s = get_idx(f"{oggi_str}T00:00")
+    idx_oggi_e = get_idx(f"{oggi_str}T18:00")
+    
+    p_oggi = sum(p for p in p_det[idx_oggi_s:idx_oggi_e+1] if p is not None)
+    e_oggi = sum(e for e in e_det[idx_oggi_s:idx_oggi_e+1] if e is not None)
+    
+    bilancio += (p_oggi - e_oggi)
+    if p_oggi >= 3.5 or oggi_str == data_reset_manuale:
+        bilancio = 0.0
+    if bilancio > 0.0:
+        bilancio = 0.0
+    bil_oggi = bilancio
 
-    # --- CALCOLO PREVISIONI ---
+    # --- PREVISIONI (Ensemble) ---
     membri_eps = [k for k in dati_eps.keys() if "precipitation_member" in k]
     
     def calcola_eps_giorno(start, end):
         p_media = 0.0
         if membri_eps and start and end:
-            for i in range(start, end):
+            for i in range(start, end + 1):
                 vals = [dati_eps[m][i] for m in membri_eps if dati_eps[m][i] is not None]
                 if vals:
                     p_media += sum(vals) / len(vals)
         elif start and end:
-            p_media = sum(p for p in p_det[start:end] if p is not None)
+            p_media = sum(p for p in p_det[start:end+1] if p is not None)
         return p_media
 
-    # Domani (24h)
-    p_domani = calcola_eps_giorno(idx_domani_start, idx_domani_end)
-    e_domani = sum(e for e in e_det[idx_domani_start:idx_domani_end] if e is not None) if idx_domani_start and idx_domani_end else 0
+    # Domani
+    idx_domani_s = get_idx(f"{domani_str}T00:00")
+    idx_domani_e = get_idx(f"{domani_str}T23:00")
+    p_domani = calcola_eps_giorno(idx_domani_s, idx_domani_e)
+    e_domani = sum(e for e in e_det[idx_domani_s:idx_domani_e+1] if e is not None)
+    
     bil_domani = bil_oggi + p_domani - e_domani
-    stress_domani = valuta_stress(bil_domani, p_domani)
+    if p_domani >= 3.5: bil_domani = 0.0
+    if bil_domani > 0.0: bil_domani = 0.0
 
-    # Dopodomani (24h)
-    p_dopo = calcola_eps_giorno(idx_dopo_start, idx_dopo_end)
-    e_dopo = sum(e for e in e_det[idx_dopo_start:idx_dopo_end] if e is not None) if idx_dopo_start and idx_dopo_end else 0
+    # Dopodomani
+    idx_dopo_s = get_idx(f"{dopo_str}T00:00")
+    idx_dopo_e = get_idx(f"{dopo_str}T23:00")
+    p_dopo = calcola_eps_giorno(idx_dopo_s, idx_dopo_e)
+    e_dopo = sum(e for e in e_det[idx_dopo_s:idx_dopo_e+1] if e is not None)
+    
     bil_dopo = bil_domani + p_dopo - e_dopo
-    stress_dopo = valuta_stress(bil_dopo, p_dopo)
+    if p_dopo >= 3.5: bil_dopo = 0.0
+    if bil_dopo > 0.0: bil_dopo = 0.0
 
     return {
-        "ieri_stress": stress_ieri, "ieri_p": p_ieri, "ieri_e": e_ieri,
-        "oggi_stress": stress_oggi, "oggi_p": p_oggi, "oggi_e": e_oggi,
-        "domani_stress": stress_domani, "domani_p": p_domani, "domani_e": e_domani,
-        "dopo_stress": stress_dopo, "dopo_p": p_dopo, "dopo_e": e_dopo,
-        "azzerato": forza_azzeramento
+        "ieri_stress": valuta_stress(bil_ieri), "ieri_p": p_ieri, "ieri_e": e_ieri,
+        "oggi_stress": valuta_stress(bil_oggi), "oggi_p": p_oggi, "oggi_e": e_oggi,
+        "domani_stress": valuta_stress(bil_domani), "domani_p": p_domani, "domani_e": e_domani,
+        "dopo_stress": valuta_stress(bil_dopo), "dopo_p": p_dopo, "dopo_e": e_dopo,
+        "data_reset": data_reset_manuale, "oggi_str": oggi_str, "ieri_str": ieri_str
     }
 
 def genera_messaggio(d):
-    nota_reset = "\n*(Storico forzato: irrigazione manuale rilevata)*\n" if d["azzerato"] else ""
+    # Segnalazione discreta se il reset manuale ha influito sullo storico
+    nota_reset = ""
+    if d["data_reset"] in [d["ieri_str"], d["oggi_str"]]:
+        nota_reset = "\n*(Storico bilanciato: irrigazione manuale registrata)*\n"
     
     messaggio = f"""**BOLLETTINO SUOLO** 
 Rivoli (TO)
@@ -189,7 +211,7 @@ Stato: {d['ieri_stress']}
 - Pioggia caduta: {d['ieri_p']:.1f} mm
 - Evaporazione avvenuta: {d['ieri_e']:.1f} mm
 
-Oggi (fino alle 18:00)
+Oggi (fino alle 19:00)
 Stato: {d['oggi_stress']}
 - Pioggia caduta: {d['oggi_p']:.1f} mm
 - Evaporazione avvenuta: {d['oggi_e']:.1f} mm
@@ -212,7 +234,7 @@ def invia_telegram(messaggio, token, chat_id):
         print("Token o Chat ID mancanti.")
         return
 
-    # Tastiera interattiva ripulita per l'azzeramento manuale
+    # Tastiera interattiva
     tastiera = {
         "inline_keyboard": [
             [{"text": "Ho bagnato l'orto! (Azzera)", "callback_data": "reset_idrico"}]
@@ -226,28 +248,15 @@ def invia_telegram(messaggio, token, chat_id):
     except Exception as e:
         print(f"Errore invio Telegram: {e}")
 
-def verifica_irrigazione_manuale():
-    """Controlla se esiste il segnale di reset manuale avvenuto nelle ultime 48 ore."""
-    if os.path.exists("ultima_innaffiatura.txt"):
-        with open("ultima_innaffiatura.txt", "r") as f:
-            try:
-                data_reset = datetime.fromisoformat(f.read().strip())
-                if datetime.now() - data_reset < timedelta(hours=48):
-                    return True
-            except:
-                pass
-    return False
-
 def main():
     token = os.getenv("TELEGRAM_TOKEN")
     chat_id = os.getenv("TELEGRAM_CHAT_ID")
 
+    # Controlliamo i click avvenuti dal bollettino precedente
     if token:
         controlla_pulsante_telegram(token)
 
-    forza_azzeramento = verifica_irrigazione_manuale()
-
-    dati = calcola_dati_orto(forza_azzeramento)
+    dati = calcola_dati_orto()
     messaggio = genera_messaggio(dati)
     print(messaggio)
     invia_telegram(messaggio, token, chat_id)
