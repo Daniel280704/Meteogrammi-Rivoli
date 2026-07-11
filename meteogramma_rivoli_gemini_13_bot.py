@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
 Meteogramma per Rivoli (TO) basato su modelli ICON e AROME.
-- Versione 13.4: Rimozione stima Run (fuorviante), mantenimento ora di generazione.
-- Sistema Anti-Crash potenziato (Timeout a 60 secondi).
+- Versione 13.3: Sync Anti-Spam (attende che SIA il deterministico CHE le ensemble siano aggiornati).
 - Estensione automatica a 3 giorni di calendario per D2 e AROME (copertura 48h reali).
 - Layout a tre livelli (6 pannelli EPS, 5 pannelli DET con Zero Termico, 4 pannelli per AROME).
 - Esclusione della richiesta di Zero Termico per l'API di AROME.
+- Sistema Anti-Crash con auto-retry per errore 503.
 - Integrazione Bot Telegram per invio automatico dei grafici generati.
 
 Uso:
@@ -17,6 +17,7 @@ import math
 import sys
 import os
 import time
+import hashlib
 from datetime import datetime, timezone, timedelta
 from collections import defaultdict
 
@@ -81,30 +82,50 @@ VARIABILI = [
 SOGLIE_PIOGGIA_1H = [0.2, 1.0, 5.0]
 
 
-def fetch_con_retry(url: str, params: dict, max_retries: int = 4) -> dict:
+def stima_run_attuale(modello: str):
+    now_utc = datetime.now(timezone.utc)
+    ora_utc = now_utc.hour + now_utc.minute / 60.0
+    
+    if modello == "d2":
+        run_disponibili = [0, 3, 6, 9, 12, 15, 18, 21]
+        delay = 1.5 
+    elif modello == "arome":
+        run_disponibili = [0, 3, 6, 9, 12, 15, 18, 21]
+        delay = 2.0
+    elif modello == "icon2i":
+        run_disponibili = [0, 12]
+        delay = 3.5 
+    else:
+        run_disponibili = [0, 6, 12, 18]
+        delay = 2.5 if modello == "ch2" else 2.0
+        
+    run_stimato = run_disponibili[-1] 
+    for run in sorted(run_disponibili, reverse=True):
+        if ora_utc >= (run + delay):
+            run_stimato = run
+            break
+            
+    return run_stimato, f"{run_stimato:02d}Z"
+
+
+def fetch_con_retry(url: str, params: dict, max_retries: int = 3) -> dict:
     for tentativo in range(max_retries):
         try:
-            # Aumentato il timeout da 30 a 60 secondi per dare respiro ai server EPS
-            resp = requests.get(url, params=params, timeout=60)
+            resp = requests.get(url, params=params, timeout=30)
             resp.raise_for_status()
             return resp.json()
-        except requests.exceptions.Timeout:
-            print(f"\n⚠️ Il server di Open-Meteo è lento a rispondere (Timeout).", file=sys.stderr)
-            print(f"⏳ Attendo 6 secondi e ritento... (Tentativo {tentativo + 1} di {max_retries})", file=sys.stderr)
-            time.sleep(6)
         except requests.exceptions.HTTPError as e:
             if resp.status_code in [502, 503, 504]:
                 print(f"\n⚠️ Il server di Open-Meteo è occupato (Errore {resp.status_code}).", file=sys.stderr)
-                print(f"⏳ Attendo 6 secondi e ritento... (Tentativo {tentativo + 1} di {max_retries})", file=sys.stderr)
-                time.sleep(6)
+                print(f"⏳ Attendo 4 secondi e ritento... (Tentativo {tentativo + 1} di {max_retries})", file=sys.stderr)
+                time.sleep(4)
             else:
                 raise e
         except requests.exceptions.RequestException as e:
-            print(f"\n❌ Errore di rete: {e}", file=sys.stderr)
-            print(f"⏳ Attendo 4 secondi e ritento... (Tentativo {tentativo + 1} di {max_retries})", file=sys.stderr)
-            time.sleep(4)
+            print(f"\n❌ Errore di connessione a internet: {e}", file=sys.stderr)
+            time.sleep(2)
             
-    raise Exception("Impossibile scaricare i dati: il server è rimasto bloccato o è troppo lento. Riprova più tardi.")
+    raise Exception("Impossibile scaricare i dati: il server è rimasto bloccato. Riprova più tardi.")
 
 
 def fetch_data(lat: float, lon: float, giorni: int, modello: str) -> dict:
@@ -137,6 +158,46 @@ def fetch_deterministico(lat: float, lon: float, giorni: int, modello: str) -> d
         "timezone": "Europe/Rome",
     }
     return fetch_con_retry(FORECAST_URL, params)
+
+
+def verifica_dati_nuovi(dati: dict, dati_det: dict, modello: str) -> bool:
+    """Controlla se SIA il deterministico CHE l'ensemble sono aggiornati rispetto all'ultimo grafico."""
+    is_ensemble = MODELLI[modello]["is_ensemble"]
+    
+    # Hash del deterministico
+    hash_det_attuale = hashlib.md5(str(dati_det["hourly"]["temperature_2m"]).encode('utf-8')).hexdigest()
+    
+    # Hash dell'ensemble (se previsto)
+    hash_ens_attuale = "NO_ENS"
+    if is_ensemble:
+        # Passiamo l'intero dizionario orario delle ensemble per una sicurezza del 100%
+        hash_ens_attuale = hashlib.md5(str(dati["hourly"]).encode('utf-8')).hexdigest()
+
+    file_hash = f"ultimo_hash_{modello}.txt"
+    
+    if os.path.exists(file_hash):
+        with open(file_hash, "r") as f:
+            linee = f.read().strip().split('\n')
+            hash_det_salvato = linee[0] if len(linee) > 0 else ""
+            hash_ens_salvato = linee[1] if len(linee) > 1 else "NO_ENS"
+            
+            if is_ensemble:
+                # Se il deterministico non è cambiato, blocca (dati vecchi)
+                if hash_det_attuale == hash_det_salvato:
+                    return False
+                # Se l'ensemble non è cambiato, blocca (il deterministico ha corso, ma l'EPS è in ritardo)
+                if hash_ens_attuale == hash_ens_salvato:
+                    return False
+            else:
+                # Modelli solo deterministici (es. AROME, ICON-2I)
+                if hash_det_attuale == hash_det_salvato:
+                    return False
+                    
+    # Se arriviamo qui, i dati sono freschi per entrambi i rami. Salviamo i nuovi hash.
+    with open(file_hash, "w") as f:
+        f.write(f"{hash_det_attuale}\n{hash_ens_attuale}")
+        
+    return True
 
 
 def raggruppa_membri(hourly: dict) -> dict:
@@ -187,6 +248,7 @@ def formatta_assi(ax, y_label_step=None, x_interval=1):
 def plot_meteogramma(data: dict, dati_det: dict, out_path: str, modello: str, luogo: str = "Rivoli (TO)"):
     is_ensemble = MODELLI[modello]["is_ensemble"]
     has_zero = (modello != "arome")
+    run_utc_int, run_str = stima_run_attuale(modello)
     
     asse_temporale_base = data["hourly"]["time"] if is_ensemble else dati_det["hourly"]["time"]
     
@@ -263,9 +325,8 @@ def plot_meteogramma(data: dict, dati_det: dict, out_path: str, modello: str, lu
         ax_temp, ax_prec, ax_wind, ax_rh = axes
         sottotitolo = "Corsa singola deterministica ad altissima risoluzione geografica"
         
-    # Titolo pulito senza il calcolo del Run
     fig.suptitle(
-        f"{nome_modello} — {luogo} (Quota griglia: {quota_modello} m)\n{sottotitolo}",
+        f"{nome_modello} — {luogo} (Quota griglia: {quota_modello} m) | Run: {run_str}\n{sottotitolo}",
         fontsize=13, fontweight="bold",
     )
 
@@ -418,9 +479,14 @@ def main():
         print(f"❌ Elaborazione interrotta per il modello {args.modello.upper()}: {e}", file=sys.stderr)
         sys.exit(1)
 
+    # --- CONTROLLO IMPRONTA DIGITALE SINCRONIZZATO ---
+    if not verifica_dati_nuovi(dati, dati_det, args.modello):
+        print(f"ℹ️ I dati di {args.modello.upper()} non sono del tutto allineati (Ensemble o Det ancora vecchi). Grafico saltato.")
+        sys.exit(0)
+
     plot_meteogramma(dati, dati_det, out_path, args.modello)
     
-    # --- Nuova esecuzione per invio Telegram ---
+    # --- Invio Telegram ---
     ora_esecuzione = datetime.now().strftime("%d/%m/%Y %H:%M")
     titolo_modello = MODELLI[args.modello]["nome"]
     didascalia = f"📊 Meteogramma {titolo_modello}\n📍 Rivoli (TO) - Aggiornato il {ora_esecuzione}"
