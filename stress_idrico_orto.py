@@ -60,10 +60,12 @@ def calcola_bilancio_idrico():
     temp = dati_det["temperature_2m"]
 
     start_72h = max(0, current_idx - 72)
+    start_24h = max(0, current_idx - 24)
     end_48h = min(len(pioggia_det), current_idx + 48)
 
-    # DATI PASSATI STORICI (Ultime 72h dal deterministico)
+    # DATI PASSATI STORICI (Ultime 72h e ultime 24h dal deterministico)
     pioggia_72h = sum(p for p in pioggia_det[start_72h:current_idx] if p is not None)
+    pioggia_24h = sum(p for p in pioggia_det[start_24h:current_idx] if p is not None)
     et0_72h = sum(e for e in et0[start_72h:current_idx] if e is not None) 
     bilancio_passato = pioggia_72h - et0_72h
 
@@ -89,13 +91,15 @@ def calcola_bilancio_idrico():
     # BILANCIO TOTALE STIMATO
     bilancio_totale = bilancio_passato + pioggia_prevista_48h - et0_prevista_48h
 
-    return bilancio_totale, bilancio_passato, pioggia_72h, et0_72h, pioggia_prevista_48h, et0_prevista_48h, t_max_prevista
+    return bilancio_totale, bilancio_passato, pioggia_72h, et0_72h, pioggia_prevista_48h, et0_prevista_48h, t_max_prevista, pioggia_24h
 
 
-def genera_messaggio(bilancio_totale, bilancio_passato, pioggia_72h, et0_72h, pioggia_prevista, et0_prevista, t_max_prevista):
+def genera_messaggio(bilancio_totale, bilancio_passato, pioggia_72h, et0_72h, pioggia_prevista, et0_prevista, t_max_prevista, pioggia_24h):
     
-    # Classificazione stress idrico ATTUALE
-    if bilancio_passato <= -15:
+    # Classificazione stress idrico ATTUALE (con override se ha piovuto in modo significativo di recente)
+    if pioggia_24h >= 5.0:
+        stato_attuale = "🟢 **SCARSO O NULLO STRESS IDRICO**"
+    elif bilancio_passato <= -15:
         stato_attuale = "🔴 **ALTO STRESS IDRICO**"
     elif bilancio_passato <= -5:
         stato_attuale = "🟡 **STRESS IDRICO INTERMEDIO**"
@@ -160,8 +164,8 @@ def invia_telegram(messaggio):
 
 
 def main():
-    bilancio_totale, bilancio_passato, pioggia_72h, et0_72h, pioggia_prevista, et0_prevista, t_max_prevista = calcola_bilancio_idrico()
-    messaggio = genera_messaggio(bilancio_totale, bilancio_passato, pioggia_72h, et0_72h, pioggia_prevista, et0_prevista, t_max_prevista)
+    bilancio_totale, bilancio_passato, pioggia_72h, et0_72h, pioggia_prevista, et0_prevista, t_max_prevista, pioggia_24h = calcola_bilancio_idrico()
+    messaggio = genera_messaggio(bilancio_totale, bilancio_passato, pioggia_72h, et0_72h, pioggia_prevista, et0_prevista, t_max_prevista, pioggia_24h)
     print(messaggio)
     invia_telegram(messaggio)
 
