@@ -31,9 +31,3 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: python analisi_fenomenologia_temporalesca.py
-"""
-
-with open("analisi_fenomenologia_temporalesca.yml", "w") as f:
-    f.write(yaml_content)
-    
-print("File yaml creato con successo.")
