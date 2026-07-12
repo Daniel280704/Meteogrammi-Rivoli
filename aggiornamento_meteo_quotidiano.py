@@ -60,7 +60,7 @@ def interpella_gemini(dati_testuali, oggi_str, domani_str):
     """Invia il testo pre-calcolato a Gemini per la stesura finale discorsiva"""
     api_key = os.getenv("GEMINI_API_KEY")
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('models/gemini-1.5-flash') # Modello aggiornato consigliato
+    model = genai.GenerativeModel('models/gemini-3.5-flash') # Modello aggiornato consigliato
     
     prompt = f"""
     Sei un meteorologo. Il tuo UNICO compito è prendere i dati orari e giornalieri forniti qui sotto e trasformarli in un testo fluido e discorsivo.
