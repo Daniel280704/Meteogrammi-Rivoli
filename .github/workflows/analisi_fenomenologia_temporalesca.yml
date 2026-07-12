@@ -2,9 +2,9 @@ name: Analisi temporali approfondita
 
 on:
   schedule:
-    # Esegue tutti i giorni alle 06:00 UTC (le 08:00 in Italia)
+    # Esegue tutti i giorni alle 08:18 UTC (le 10:18 in Italia)
     # Il "4-9" indica che girerà SOLO da Aprile a Settembre.
-    - cron: '23 8 * 3-10 *'
+    - cron: '18 8 * 3-10 *'
   
   # workflow_dispatch permette di far partire lo script manualmente tramite il pulsante "Run workflow" su GitHub
   workflow_dispatch: 
