@@ -1,4 +1,11 @@
 #!/usr/bin/env python3
+"""
+Analizzatore Termodinamico e Cinematico Avanzato per Rischio Temporali
+*** VERSIONE DI TEST - TRIGGER FORZATO ***
+- Il controllo Ensemble è disattivato.
+- L'analisi viene eseguita forzatamente per la fascia oraria 17:00 - 20:00 del giorno corrente.
+- Output ripristinato su Telegram.
+"""
 
 import os
 import sys
@@ -15,7 +22,7 @@ LAT = 45.0734521841099
 LON = 7.543386286825349
 
 def scomposizione_vettoriale(speed_kmh, direction_deg):
-    \"\"\"Converte velocità e direzione in vettori U e V (m/s).\"\"\"
+    """Converte velocità e direzione in vettori U e V (m/s)."""
     if speed_kmh is None or direction_deg is None:
         return 0.0, 0.0
     speed_ms = speed_kmh / 3.6
@@ -25,20 +32,20 @@ def scomposizione_vettoriale(speed_kmh, direction_deg):
     return u, v
 
 def calcola_magnitudo_direzione(u, v):
-    \"\"\"Riconverte i vettori U e V in velocità (km/h) e direzione (gradi).\"\"\"
+    """Riconverte i vettori U e V in velocità (km/h) e direzione (gradi)."""
     speed_ms = math.sqrt(u**2 + v**2)
     speed_kmh = speed_ms * 3.6
     direction_deg = (math.degrees(math.atan2(-u, -v)) + 360) % 360
     return speed_kmh, direction_deg
 
 def magnitudo_shear(u1, v1, u2, v2):
-    \"\"\"Calcola la magnitudo (m/s) della differenza vettoriale.\"\"\"
+    """Calcola la magnitudo (m/s) della differenza vettoriale."""
     if None in (u1, v1, u2, v2):
         return None
     return math.sqrt((u2 - u1)**2 + (v2 - v1)**2)
 
 def fetch_dati_convezione_d2():
-    \"\"\"Scarica il profilo verticale dal modello deterministico ICON-D2.\"\"\"
+    """Scarica il profilo verticale dal modello deterministico ICON-D2."""
     url = "https://api.open-meteo.com/v1/forecast"
     params = {
         "latitude": LAT, "longitude": LON, "models": "icon_d2",
@@ -59,7 +66,7 @@ def formatta_sicuro(valore, template="{:.1f}"):
     return "N/D" if valore is None else template.format(valore)
 
 def stima_grandine_python(cape, dls, lapse_rate, zero_termico):
-    \"\"\"Calcolo matematico della dimensione potenziale della grandine.\"\"\"
+    """Calcolo matematico della dimensione potenziale della grandine."""
     if None in (cape, dls, lapse_rate, zero_termico):
         return "N/D (Dati insufficienti per il calcolo)"
     if cape < 500: return "Assente o trascurabile."
@@ -79,7 +86,7 @@ def interpella_gemini(report_tecnico, giorno_str):
         
     client = genai.Client(api_key=api_key)
     
-    prompt = f\"\"\"
+    prompt = f"""
     Sei un meteorologo esperto in dinamiche convettive. Il tuo compito è stilare un bollettino di analisi 
     tecnica sul TIPO DI SETUP a disposizione dell'atmosfera per il giorno {giorno_str} a Rivoli (TO).
 
@@ -93,7 +100,7 @@ def interpella_gemini(report_tecnico, giorno_str):
     4. STRUTTURA CELLE: Usa DLS (Deep Layer Shear) per determinare la tipologia. < 12 m/s: Cella singola/Pulse storm. 12-20 m/s: Multicelle. > 20 m/s: Rischio Supercelle.
     5. FENOMENOLOGIA: Valuta il rischio Downburst incrociando l'umidità a 700 hPa (< 50% alta probabilità di raffiche secche) e il lapse rate. Includi la stima grandine del modello.
     6. Non superare i due/tre paragrafi ben scorrevoli. Non dare raccomandazioni di protezione civile.
-    \"\"\"
+    """
 
     response = client.models.generate_content(
         model='gemini-3.5-flash',
@@ -125,7 +132,7 @@ def main():
     print(f"⚠️ FORZATURA: Analisi impostata artificialmente su {oggi_str} fascia 17:00 - 20:00.")
     # --- FINE BLOCCO FORZATURA ---
 
-    messaggio_telegram = "🌩 **[TEST] ANALISI SETUP CONVETTIVO CONDIZIONALE**\\n\\n"
+    messaggio_telegram = "🌩 **[TEST] ANALISI SETUP CONVETTIVO CONDIZIONALE**\n\n"
 
     for data_str, indici_ore in finestre_attive.items():
         capes, cins, lrs = [], [], []
@@ -187,7 +194,7 @@ def main():
 
         stima_g = stima_grandine_python(max_cape, dls, media_lr, media_zt)
 
-        report_dati = f\"\"\"
+        report_dati = f"""
         Finestra FORZATA: Da {datetime.fromisoformat(hourly['time'][indici_ore[0]]).strftime('%H:%M')} a {datetime.fromisoformat(hourly['time'][indici_ore[-1]]).strftime('%H:%M')}
         Max CAPE: {formatta_sicuro(max_cape, "{:.0f}")} J/kg
         CIN Medio: {formatta_sicuro(media_cin, "{:.0f}")} J/kg
@@ -198,13 +205,13 @@ def main():
         Vettore Traslazione (CBL Wind): {formatta_sicuro(traslazione_kmh, "{:.1f}")} km/h con provenienza da {formatta_sicuro(traslazione_dir, "{:.0f}")}°
         Umidità media 700hPa: {formatta_sicuro(media_rh700, "{:.0f}")}%
         Modello matematico grandine: {stima_g}
-        \"\"\"
+        """
         
         giorno_formattato = datetime.strptime(data_str, "%Y-%m-%d").strftime("%d/%m/%Y")
         print(f"[{giorno_formattato}] Elaborazione responso diagnostico tramite Gemini per il setup forzato...")
         responso = interpella_gemini(report_dati, giorno_formattato)
         
-        messaggio_telegram += f"📅 **Target: {giorno_formattato} (TEST)**\\n\\n{responso}\\n\\n➖➖➖➖➖➖➖➖➖➖\\n\\n"
+        messaggio_telegram += f"📅 **Target: {giorno_formattato} (TEST)**\n\n{responso}\n\n➖➖➖➖➖➖➖➖➖➖\n\n"
 
     # Invio Telegram ripristinato
     token = os.getenv("TELEGRAM_TOKEN")
@@ -219,7 +226,7 @@ def main():
             print(f"Errore invio Telegram: {res.text}")
     else:
         print(messaggio_telegram)
-        print("\\n⚠️ Telegram Token o Chat ID non configurati nell'ambiente locale.")
+        print("\n⚠️ Telegram Token o Chat ID non configurati nell'ambiente locale.")
 
 if __name__ == "__main__":
     main()
