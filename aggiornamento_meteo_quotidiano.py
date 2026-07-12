@@ -48,6 +48,12 @@ def media_lista(lista):
     if not valori_validi: return 0
     return int(round(sum(valori_validi) / len(valori_validi)))
 
+def conta_superamenti(lista, soglia):
+    """Calcola il numero assoluto di membri ENS che superano una certa soglia"""
+    valori_validi = [v for v in lista if v is not None]
+    if not valori_validi: return 0
+    return sum(1 for v in valori_validi if v >= soglia)
+
 def percentuale_superamento(lista, soglia):
     """Calcola la percentuale di membri ENS che superano una certa soglia"""
     valori_validi = [v for v in lista if v is not None]
@@ -106,12 +112,24 @@ def main():
         
         ch2_disponibile = True
         try:
+            # Dati ensemble CH2 (Precipitazioni)
             dati_eps_ch2 = requests.get("https://ensemble-api.open-meteo.com/v1/ensemble", params={
                 "latitude": LAT, "longitude": LON,
                 "hourly": "precipitation",
-                "models": "icon_ch2",
+                "models": "meteoswiss_icon_ch2_ensemble",
                 "timezone": "Europe/Rome", "forecast_days": 2
             }, timeout=10).json()
+            
+            # Dati deterministici CH2 (Soleggiamento)
+            dati_det_ch2 = requests.get("https://api.open-meteo.com/v1/forecast", params={
+                "latitude": LAT, "longitude": LON,
+                "hourly": "sunshine_duration",
+                "models": "meteoswiss_icon_ch2",
+                "timezone": "Europe/Rome", "forecast_days": 2
+            }, timeout=10).json()
+            
+            if 'hourly' not in dati_eps_ch2 or 'hourly' not in dati_det_ch2:
+                ch2_disponibile = False
         except:
             ch2_disponibile = False
             
@@ -122,6 +140,7 @@ def main():
     h_det = dati_det.get('hourly', {})
     h_eps_d2 = dati_eps_d2.get('hourly', {})
     h_eps_ch2 = dati_eps_ch2.get('hourly', {}) if ch2_disponibile else {}
+    h_det_ch2 = dati_det_ch2.get('hourly', {}) if ch2_disponibile else {}
     orari = h_det.get('time', [])
     
     sunrise_str = dati_det.get('daily', {}).get('sunrise', [])
@@ -137,7 +156,13 @@ def main():
         alba_piu_2 = alba + timedelta(hours=2)
         tramonto_meno_2 = tramonto - timedelta(hours=2)
         
-        sun_minuti = (h_det.get('sunshine_duration', [])[i] or 0) / 60
+        # Uso preferenziale CH2 per il soleggiamento (con fallback su D2)
+        if ch2_disponibile and h_det_ch2.get('sunshine_duration'):
+            sun_sec = h_det_ch2['sunshine_duration'][i]
+        else:
+            sun_sec = h_det.get('sunshine_duration', [])[i] if i < len(h_det.get('sunshine_duration', [])) else 0
+            
+        sun_minuti = (sun_sec or 0) / 60
         
         # Mattino: da 2h dopo l'alba fino alle 12:59
         if alba_piu_2 <= ora_dt and ora_dt.hour < 13:
@@ -186,32 +211,32 @@ def main():
         prec_eps_d2_membri = [h_eps_d2[k][i] for k in h_eps_d2 if k.startswith('precipitation_member')]
         prec_eps_ch2_membri = [h_eps_ch2[k][i] for k in h_eps_ch2 if k.startswith('precipitation_member')] if ch2_disponibile else []
         
-        # Calcolo percentuali di superamento soglie su ICON-D2
-        pct_d2_1mm = percentuale_superamento(prec_eps_d2_membri, 1.0)
+        # Calcolo percentuali e conteggi su ICON-D2
         pct_d2_3mm = percentuale_superamento(prec_eps_d2_membri, 3.0)
         pct_d2_5mm = percentuale_superamento(prec_eps_d2_membri, 5.0)
+        num_d2_1mm = conta_superamenti(prec_eps_d2_membri, 1.0)
         
         instabilita = "assente"
 
         if ch2_disponibile:
-            pct_ch2_1mm = percentuale_superamento(prec_eps_ch2_membri, 1.0)
             pct_ch2_3mm = percentuale_superamento(prec_eps_ch2_membri, 3.0)
             pct_ch2_5mm = percentuale_superamento(prec_eps_ch2_membri, 5.0)
+            num_ch2_1mm = conta_superamenti(prec_eps_ch2_membri, 1.0)
             
             # Matrice Dinamica di Tolleranza Incrociata (D2 e CH2 online)
             if (pct_d2_5mm >= 10) or (pct_ch2_5mm >= 10):
                 instabilita = "spiccata instabilità"
-            elif ((pct_d2_3mm >= 10) and (pct_ch2_1mm > 0)) or ((pct_ch2_3mm >= 10) and (pct_d2_1mm > 0)):
+            elif ((pct_d2_3mm >= 10) and (num_ch2_1mm > 0)) or ((pct_ch2_3mm >= 10) and (num_d2_1mm > 0)):
                 instabilita = "marcata instabilità"
-            elif ((pct_d2_1mm >= 10) and (pct_ch2_1mm >= 10)) or (pct_d2_1mm >= 20) or (pct_ch2_1mm >= 20):
+            elif (num_d2_1mm >= 1) and (num_ch2_1mm >= 1):
                 instabilita = "possibile instabilità"
         else:
             # Fallback se ICON-CH2 è offline: Soglie rialzate e ottimizzate per singolo modello (D2)
-            if pct_d2_5mm >= 10:      # Almeno 2 spaghi su 20 sopra i 5mm
+            if pct_d2_5mm >= 10:      
                 instabilita = "spiccata instabilità"
-            elif pct_d2_3mm >= 15:    # Almeno 3 spaghi su 20 sopra i 3mm
+            elif pct_d2_3mm >= 15:    
                 instabilita = "marcata instabilità"
-            elif pct_d2_1mm >= 20:    # Almeno 4 spaghi su 20 sopra 1mm
+            elif num_d2_1mm >= 2:    
                 instabilita = "possibile instabilità"
 
         tipo_prec = ""
