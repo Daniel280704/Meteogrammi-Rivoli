@@ -5,8 +5,8 @@ from datetime import datetime, timedelta
 
 import google.generativeai as genai
 
-LAT = 45.07347491421504
-LON = 7.543461388723449
+LAT = 45.073443
+LON = 7.543472
 
 GIORNI_IT = {0: "lunedì", 1: "martedì", 2: "mercoledì", 3: "giovedì", 4: "venerdì", 5: "sabato", 6: "domenica"}
 MESI_IT = {1: "gennaio", 2: "febbraio", 3: "marzo", 4: "aprile", 5: "maggio", 6: "giugno", 
@@ -82,23 +82,32 @@ def main():
     inverno = mese_corrente in [11, 12, 1, 2, 3]
     estate = mese_corrente in [5, 6, 7, 8, 9, 10]
     
+    dt_oggi = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    dt_inizio_estrazione = dt_oggi + timedelta(days=2)
+    dt_fine_estrazione = dt_oggi + timedelta(days=4, hours=20)
+
     try:
-        # Richiesta a 5 giorni utilizzando ICON Seamless (unisce D2 ed EU)
+        # Richiesta a Open-Meteo per ICON-CH2 (deterministico)
         dati_det = requests.get("https://api.open-meteo.com/v1/forecast", params={
             "latitude": LAT, "longitude": LON,
             "hourly": "wind_direction_10m,cape,sunshine_duration,apparent_temperature,temperature_1000hPa,temperature_975hPa,temperature_950hPa,temperature_925hPa,temperature_900hPa,temperature_850hPa,temperature_800hPa",
             "daily": "sunrise,sunset",
-            "models": "icon_seamless",
-            "timezone": "Europe/Rome", "forecast_days": 5
+            "models": "icon_ch2",
+            "timezone": "Europe/Rome", 
+            "start_date": dt_inizio_estrazione.strftime("%Y-%m-%d"),
+            "end_date": dt_fine_estrazione.strftime("%Y-%m-%d")
         }, timeout=10).json()
 
+        # Richiesta a Open-Meteo per ICON-CH2 (Ensemble)
         dati_eps = requests.get("https://ensemble-api.open-meteo.com/v1/ensemble", params={
             "latitude": LAT, "longitude": LON,
             "hourly": "temperature_2m,precipitation,wind_speed_10m,wind_gusts_10m,relative_humidity_2m,dew_point_2m",
-            "models": "icon_seamless",
-            "timezone": "Europe/Rome", "forecast_days": 5
+            "models": "icon_ch2",
+            "timezone": "Europe/Rome",
+            "start_date": dt_inizio_estrazione.strftime("%Y-%m-%d"),
+            "end_date": dt_fine_estrazione.strftime("%Y-%m-%d")
         }, timeout=10).json()
-            
+
     except Exception as e:
         print(f"Errore fatale nel recupero dati Open-Meteo: {e}")
         return
@@ -107,23 +116,35 @@ def main():
     h_eps = dati_eps.get('hourly', {})
     orari = h_det.get('time', [])
     
+    if not orari:
+        print("Errore: Nessun dato restituito dai server per ICON-CH2.")
+        return
+
     sunrise_str = dati_det.get('daily', {}).get('sunrise', [])
     sunset_str = dati_det.get('daily', {}).get('sunset', [])
 
-    # --- Pre-calcolo medie di soleggiamento (Mattino e Pomeriggio) per il medio termine ---
     medie_sole = {2: {'mattino': [], 'pomeriggio': []}, 
                   3: {'mattino': [], 'pomeriggio': []}, 
                   4: {'mattino': [], 'pomeriggio': []}}
                   
-    for i in range(48, min(120, len(orari))):
-        ora_dt = datetime.fromisoformat(orari[i])
-        giorno_idx = i // 24
+    indici_validi = []
+    
+    for i, t_str in enumerate(orari):
+        ora_dt = datetime.fromisoformat(t_str)
+        giorno_idx = (ora_dt.date() - dt_oggi.date()).days
+        
+        # Tronca l'ultimo giorno (il quinto da oggi, indice 4) alle ore 20:59
+        if giorno_idx == 4 and ora_dt.hour > 20:
+            continue
+            
+        indici_validi.append(i)
         
         if giorno_idx not in medie_sole:
             continue
             
-        alba = datetime.fromisoformat(sunrise_str[giorno_idx])
-        tramonto = datetime.fromisoformat(sunset_str[giorno_idx])
+        # I giorni in sunrise_str partono da dt_inizio_estrazione (quindi indice 0 corrisponde a giorno_idx 2)
+        alba = datetime.fromisoformat(sunrise_str[giorno_idx - 2])
+        tramonto = datetime.fromisoformat(sunset_str[giorno_idx - 2])
         alba_piu_2 = alba + timedelta(hours=2)
         tramonto_meno_2 = tramonto - timedelta(hours=2)
         
@@ -135,11 +156,11 @@ def main():
         elif ora_dt.hour >= 13 and ora_dt <= tramonto_meno_2:
             medie_sole[giorno_idx]['pomeriggio'].append(sun_minuti)
 
+    # Pre-calcola le medie di sole per mattino e pomeriggio
     for g in medie_sole:
         for p in ['mattino', 'pomeriggio']:
             lst = medie_sole[g][p]
             medie_sole[g][p] = sum(lst) / len(lst) if lst else 0
-    # --------------------------------------------------------------------------------------
 
     sintesi = {2: [], 3: [], 4: []}
     t_min = {2: 100, 3: 100, 4: 100}
@@ -148,14 +169,16 @@ def main():
     windchill_min = {2: 100, 3: 100, 4: 100}
     
     dew_point_prev = None
-    if len(orari) > 47:
-        dew_membri_47 = [h_eps[k][47] for k in h_eps if k.startswith('dew_point_2m_member')]
-        dew_point_prev = media_lista(dew_membri_47)
+    if len(orari) > 0 and indici_validi:
+        primo_idx = indici_validi[0]
+        if primo_idx > 0:
+            dew_membri_prev = [h_eps[k][primo_idx - 1] for k in h_eps if k.startswith('dew_point_2m_member')]
+            dew_point_prev = media_lista(dew_membri_prev)
 
-    for i in range(48, min(120, len(orari))):
+    for i in indici_validi:
         ora_dt = datetime.fromisoformat(orari[i])
         ora_solare = ora_dt.hour
-        giorno_idx = i // 24
+        giorno_idx = (ora_dt.date() - dt_oggi.date()).days
         
         t_membri = [h_eps[k][i] for k in h_eps if k.startswith('temperature_2m_member')]
         t_media = media_lista(t_membri)
@@ -175,18 +198,19 @@ def main():
         w_dir = h_det.get('wind_direction_10m', [])[i] if i < len(h_det.get('wind_direction_10m', [])) else None
         w_dir_str = gradi_a_direzione(w_dir)
         
-        # INSTABILITÀ BASATA SU PERCENTUALI DEL SINGOLO MODELLO (ICON Seamless)
-        prec_membri = [h_eps[k][i] for k in h_eps if k.startswith('precipitation_member')]
-        pct_1mm = percentuale_superamento(prec_membri, 1.0)
-        pct_3mm = percentuale_superamento(prec_membri, 3.0)
-        pct_5mm = percentuale_superamento(prec_membri, 5.0)
+        # INSTABILITÀ: Logica basata esclusivamente su ICON-CH2 (Monomodello)
+        prec_eps_membri = [h_eps[k][i] for k in h_eps if k.startswith('precipitation_member')]
+        
+        pct_1mm = percentuale_superamento(prec_eps_membri, 1.0)
+        pct_3mm = percentuale_superamento(prec_eps_membri, 3.0)
+        pct_5mm = percentuale_superamento(prec_eps_membri, 5.0)
         
         instabilita = "assente"
-        if pct_5mm >= 10:
+        if pct_5mm >= 10:      
             instabilita = "spiccata instabilità"
-        elif pct_3mm >= 15:
+        elif pct_3mm >= 15:    
             instabilita = "marcata instabilità"
-        elif pct_1mm >= 20:
+        elif pct_1mm >= 20:    
             instabilita = "possibile instabilità"
 
         tipo_prec = ""
@@ -229,8 +253,8 @@ def main():
             
         dew_point_prev = dew_media
 
-        alba = datetime.fromisoformat(sunrise_str[giorno_idx])
-        tramonto = datetime.fromisoformat(sunset_str[giorno_idx])
+        alba = datetime.fromisoformat(sunrise_str[giorno_idx - 2])
+        tramonto = datetime.fromisoformat(sunset_str[giorno_idx - 2])
         alba_piu_2 = alba + timedelta(hours=2)
         tramonto_meno_2 = tramonto - timedelta(hours=2)
         
@@ -241,7 +265,6 @@ def main():
             else:
                 avg_sun = medie_sole[giorno_idx]['pomeriggio']
                 
-            # Logica severa per la copertura nuvolosa
             if avg_sun < 10: cielo = "molto nuvoloso o coperto"
             elif avg_sun <= 25: cielo = "irregolarmente o molto nuvoloso"
             elif avg_sun <= 40: cielo = "parzialmente o irregolarmente nuvoloso"
@@ -275,7 +298,6 @@ def main():
         elif inverno and windchill_min[g] != 100:
             disagio[g] = calcola_disagio_freddo(windchill_min[g])
 
-    dt_oggi = datetime.now()
     oggi_str = formatta_data_it(dt_oggi)
     
     giorni_str = {
