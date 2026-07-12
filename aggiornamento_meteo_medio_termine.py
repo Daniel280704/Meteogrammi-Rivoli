@@ -83,26 +83,27 @@ def main():
     estate = mese_corrente in [5, 6, 7, 8, 9, 10]
     
     dt_oggi = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    # Impostiamo le date esatte: da 00:00 di dopodomani (giorno 3 da oggi)
     dt_inizio_estrazione = dt_oggi + timedelta(days=2)
-    dt_fine_estrazione = dt_oggi + timedelta(days=4, hours=20)
+    dt_fine_estrazione = dt_oggi + timedelta(days=4)
 
     try:
-        # Richiesta a Open-Meteo per ICON-CH2 (deterministico)
+        # Richiesta a Open-Meteo per ICON-CH2 (deterministico - MeteoSwiss)
         dati_det = requests.get("https://api.open-meteo.com/v1/forecast", params={
             "latitude": LAT, "longitude": LON,
             "hourly": "wind_direction_10m,cape,sunshine_duration,apparent_temperature,temperature_1000hPa,temperature_975hPa,temperature_950hPa,temperature_925hPa,temperature_900hPa,temperature_850hPa,temperature_800hPa",
             "daily": "sunrise,sunset",
-            "models": "icon_ch2",
+            "models": "meteoswiss_icon_ch2",
             "timezone": "Europe/Rome", 
             "start_date": dt_inizio_estrazione.strftime("%Y-%m-%d"),
             "end_date": dt_fine_estrazione.strftime("%Y-%m-%d")
         }, timeout=10).json()
 
-        # Richiesta a Open-Meteo per ICON-CH2 (Ensemble)
+        # Richiesta a Open-Meteo per ICON-CH2 (Ensemble - MeteoSwiss)
         dati_eps = requests.get("https://ensemble-api.open-meteo.com/v1/ensemble", params={
             "latitude": LAT, "longitude": LON,
             "hourly": "temperature_2m,precipitation,wind_speed_10m,wind_gusts_10m,relative_humidity_2m,dew_point_2m",
-            "models": "icon_ch2",
+            "models": "meteoswiss_icon_ch2_ensemble",
             "timezone": "Europe/Rome",
             "start_date": dt_inizio_estrazione.strftime("%Y-%m-%d"),
             "end_date": dt_fine_estrazione.strftime("%Y-%m-%d")
