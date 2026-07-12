@@ -71,10 +71,11 @@ def interpella_gemini(dati_testuali, oggi_str, domani_str):
     4. SINTESI DISCORSIVA: Sintetizza l'evoluzione usando fasi del giorno ("in mattinata", "nelle ore centrali", "nel pomeriggio", "in serata"). Usa la cronistoria fornita solo per capire l'andamento del cielo e dei fenomeni meteo, ma raccontali in modo narrativo.
     5. TEMPERATURE DA CITARE: Cita solo la temperatura minima e la temperatura massima prevista.
     6. DISAGIO TERMICO: Quando citi la temperatura massima, affianca ESATTAMENTE la dicitura sul disagio che trovi nei dati.
-    7. TERMINOLOGIA CIELO: Quando descrivi la nuvolosità, DEVI integrare nel testo ESATTAMENTE le stesse diciture fornite dai dati (es. "sereno", "poco nuvoloso", "parzialmente nuvoloso", "irregolarmente o molto nuvoloso", "molto nuvoloso o coperto"). Evita sinonimi liberi.
+    7. TERMINOLOGIA CIELO: Quando descrivi la nuvolosità, DEVI integrare nel testo ESATTAMENTE le stesse diciture fornite dai dati. Evita sinonimi liberi.
+    8. PROBABILISMO SULLE PRECIPITAZIONI: Non dare mai i fenomeni precipitativi per certi. Usa sempre un tono probabilistico e il condizionale (es. "possibilità di rovesci", "rischio di temporali", "potrebbe verificarsi (da confermare)").
     
     ESEMPIO DI STILE DA IMITARE ALLA PERFEZIONE:
-    "La giornata di domenica si apre con condizioni di stabilità atmosferica. Le temperature minime si assestano sui 19°C. Durante le ore di luce il cielo si manterrà in prevalenza sereno, favorendo un ampio soleggiamento che porterà la massima a 33°C (disagio marcato 🟠). Nel tardo pomeriggio avremo un cielo parzialmente nuvoloso, ma senza fenomeni di rilievo."
+    "La giornata di domenica si apre con condizioni di stabilità atmosferica. Le temperature minime si assestano sui 19°C. Durante le ore di luce il cielo si manterrà in prevalenza sereno, favorendo un ampio soleggiamento che porterà la massima a 33°C (disagio marcato 🟠). Nel tardo pomeriggio si segnala una possibile instabilità con rischio di rovesci (da confermare), ma in serata la situazione volgerà al miglioramento."
     
     DATI GIORNALIERI DA TRASFORMARE IN TESTO:
     {dati_testuali}
@@ -254,10 +255,7 @@ def main():
                     vento_evento = "ventilazione umida orientale"
             
             if not inverno and w_gst_media > 30:
-                if instabilita != "assente":
-                    vento_evento = "raffiche dovute agli outflow temporaleschi"
-                else:
-                    vento_evento = "outflow di temporali vicini"
+                vento_evento = "rischio di raffiche di vento improvvise"
                     
             if not vento_evento and w_spd_media >= 15:
                 vento_evento = "rinforzo della ventilazione"
@@ -296,7 +294,14 @@ def main():
 
         record = f"Ore {ora_solare}: T={t_media}°C."
         if cielo: record += f" Cielo {cielo}."
-        if instabilita != "assente": record += f" Rilevata {instabilita} con {tipo_prec}."
+        
+        if instabilita != "assente":
+            if vento_evento == "rischio di raffiche di vento improvvise":
+                record += f" Si segnala {instabilita} con possibilità di {tipo_prec} (da confermare), con annesso rischio di raffiche di vento improvvise."
+                vento_evento = "" # Azzerato per non ripeterlo
+            else:
+                record += f" Si segnala {instabilita} con possibilità di {tipo_prec} (da confermare)."
+                
         if vento_evento: record += f" {vento_evento}."
         if nebbia: record += f" {nebbia}."
         
