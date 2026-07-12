@@ -5,8 +5,8 @@ from datetime import datetime, timedelta
 
 import google.generativeai as genai
 
-LAT = 45.07347491421504
-LON = 7.543461388723449
+LAT = 45.073443
+LON = 7.543472
 
 GIORNI_IT = {0: "lunedì", 1: "martedì", 2: "mercoledì", 3: "giovedì", 4: "venerdì", 5: "sabato", 6: "domenica"}
 MESI_IT = {1: "gennaio", 2: "febbraio", 3: "marzo", 4: "aprile", 5: "maggio", 6: "giugno", 
@@ -83,19 +83,19 @@ def main():
     estate = mese_corrente in [5, 6, 7, 8, 9, 10]
     
     try:
-        # Richiesta a 5 giorni, forzando ICON-CH2
+        # Richiesta a 5 giorni utilizzando ICON Seamless (unisce D2 ed EU)
         dati_det = requests.get("https://api.open-meteo.com/v1/forecast", params={
             "latitude": LAT, "longitude": LON,
             "hourly": "wind_direction_10m,cape,sunshine_duration,apparent_temperature,temperature_1000hPa,temperature_975hPa,temperature_950hPa,temperature_925hPa,temperature_900hPa,temperature_850hPa,temperature_800hPa",
             "daily": "sunrise,sunset",
-            "models": "icon_ch2",
+            "models": "icon_seamless",
             "timezone": "Europe/Rome", "forecast_days": 5
         }, timeout=10).json()
 
         dati_eps = requests.get("https://ensemble-api.open-meteo.com/v1/ensemble", params={
             "latitude": LAT, "longitude": LON,
             "hourly": "temperature_2m,precipitation,wind_speed_10m,wind_gusts_10m,relative_humidity_2m,dew_point_2m",
-            "models": "icon_ch2",
+            "models": "icon_seamless",
             "timezone": "Europe/Rome", "forecast_days": 5
         }, timeout=10).json()
             
@@ -107,11 +107,6 @@ def main():
     h_eps = dati_eps.get('hourly', {})
     orari = h_det.get('time', [])
     
-    # Salvataggio se il modello restituisce solo 48 ore
-    if len(orari) <= 48:
-        print("Attenzione: Open-Meteo ha restituito solo 48h. Il medio termine non è disponibile con questo modello.")
-        return
-
     sunrise_str = dati_det.get('daily', {}).get('sunrise', [])
     sunset_str = dati_det.get('daily', {}).get('sunset', [])
 
@@ -180,7 +175,7 @@ def main():
         w_dir = h_det.get('wind_direction_10m', [])[i] if i < len(h_det.get('wind_direction_10m', [])) else None
         w_dir_str = gradi_a_direzione(w_dir)
         
-        # INSTABILITÀ BASATA SU PERCENTUALI DEL SINGOLO MODELLO
+        # INSTABILITÀ BASATA SU PERCENTUALI DEL SINGOLO MODELLO (ICON Seamless)
         prec_membri = [h_eps[k][i] for k in h_eps if k.startswith('precipitation_member')]
         pct_1mm = percentuale_superamento(prec_membri, 1.0)
         pct_3mm = percentuale_superamento(prec_membri, 3.0)
@@ -246,7 +241,7 @@ def main():
             else:
                 avg_sun = medie_sole[giorno_idx]['pomeriggio']
                 
-            # Logica più severa per il calcolo del soleggiamento
+            # Logica severa per la copertura nuvolosa
             if avg_sun < 10: cielo = "molto nuvoloso o coperto"
             elif avg_sun <= 25: cielo = "irregolarmente o molto nuvoloso"
             elif avg_sun <= 40: cielo = "parzialmente o irregolarmente nuvoloso"
@@ -258,7 +253,6 @@ def main():
         if abs(dew_media - t_media) <= 1 and ur_media >= 95 and w_spd_media < 10:
             nebbia = "possibile formazione di nebbia"
 
-        # AGGIORNAMENTO ESTREMI TERMICI
         t_min[giorno_idx] = min(t_min[giorno_idx], t_media)
         t_max[giorno_idx] = max(t_max[giorno_idx], t_media)
         if estate: dew_max[giorno_idx] = max(dew_max[giorno_idx], dew_media)
