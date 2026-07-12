@@ -5,8 +5,8 @@ from datetime import datetime, timedelta
 
 import google.generativeai as genai
 
-LAT = 45.07347491421504
-LON = 7.543461388723449
+LAT = 45.073443
+LON = 7.543472
 
 GIORNI_IT = {0: "lunedì", 1: "martedì", 2: "mercoledì", 3: "giovedì", 4: "venerdì", 5: "sabato", 6: "domenica"}
 MESI_IT = {1: "gennaio", 2: "febbraio", 3: "marzo", 4: "aprile", 5: "maggio", 6: "giugno", 
@@ -63,9 +63,10 @@ def interpella_gemini(dati_testuali, oggi_str, giorni_str):
     5. TEMPERATURE DA CITARE: Cita solo la temperatura minima e la temperatura massima prevista.
     6. DISAGIO TERMICO: Quando citi la temperatura massima, affianca ESATTAMENTE la dicitura sul disagio che trovi nei dati.
     7. TERMINOLOGIA CIELO: Quando descrivi la nuvolosità, DEVI integrare nel testo ESATTAMENTE le stesse diciture fornite dai dati. Evita sinonimi liberi.
+    8. PROBABILISMO SULLE PRECIPITAZIONI: Non dare mai i fenomeni precipitativi per certi. Usa sempre un tono probabilistico e il condizionale (es. "possibilità di rovesci", "rischio di temporali", "potrebbe verificarsi (da confermare)").
     
     ESEMPIO DI STILE DA IMITARE ALLA PERFEZIONE:
-    "La giornata di {giorni_str[2]} si aprirà con condizioni di stabilità atmosferica. Le temperature minime si assesteranno sui 19°C. Durante le ore di luce il cielo si manterrà in prevalenza sereno, favorendo un ampio soleggiamento che porterà la massima a 33°C (disagio marcato 🟠). Nel tardo pomeriggio avremo un cielo parzialmente nuvoloso, ma senza fenomeni di rilievo."
+    "La giornata di {giorni_str[2]} si aprirà con condizioni di stabilità atmosferica. Le temperature minime si assesteranno sui 19°C. Durante le ore di luce il cielo si manterrà in prevalenza sereno, favorendo un ampio soleggiamento che porterà la massima a 33°C (disagio marcato 🟠). Nel tardo pomeriggio si segnala una possibile instabilità con rischio di rovesci (da confermare), ma in serata la situazione volgerà al miglioramento."
     
     DATI GIORNALIERI DA TRASFORMARE IN TESTO:
     {dati_testuali}
@@ -86,7 +87,6 @@ def main():
     dt_fine_estrazione = dt_oggi + timedelta(days=4)
 
     try:
-        # TENTATIVO 1: Richiesta a ICON-CH2 (MeteoSwiss)
         dati_det = requests.get("https://api.open-meteo.com/v1/forecast", params={
             "latitude": LAT, "longitude": LON,
             "hourly": "wind_direction_10m,cape,sunshine_duration,apparent_temperature,temperature_1000hPa,temperature_975hPa,temperature_950hPa,temperature_925hPa,temperature_900hPa,temperature_850hPa,temperature_800hPa",
@@ -106,7 +106,6 @@ def main():
             "end_date": dt_fine_estrazione.strftime("%Y-%m-%d")
         }, timeout=10).json()
         
-        # SISTEMA DI FAIL-SAFE: Controllo copertura oraria
         orari_temp = dati_det.get('hourly', {}).get('time', [])
         target_dt = dt_fine_estrazione + timedelta(hours=20)
         usa_seamless = False
@@ -118,7 +117,6 @@ def main():
             if ultimo_orario < target_dt:
                 usa_seamless = True
                 
-        # TENTATIVO 2 (FALLBACK): Se CH2 è monco, usa ICON-SEAMLESS
         if usa_seamless:
             print("⚠️ ICON-CH2 non copre fino alle 20:00 del quinto giorno (o è offline). Fallback su ICON-SEAMLESS in corso...")
             dati_det = requests.get("https://api.open-meteo.com/v1/forecast", params={
@@ -318,7 +316,7 @@ def main():
 
         record = f"Ore {ora_solare}: T={t_media}°C."
         if cielo: record += f" Cielo {cielo}."
-        if instabilita != "assente": record += f" Rilevata {instabilita} con {tipo_prec}."
+        if instabilita != "assente": record += f" Si segnala {instabilita} con possibilità di {tipo_prec} (da confermare)."
         if vento_evento: record += f" {vento_evento}."
         if nebbia: record += f" {nebbia}."
         
