@@ -3,7 +3,7 @@ name: Aggiornamento meteo quotidiano
 on:
   schedule:
     # Gira tutti i giorni alle 6:39 italiane estive (04:39 UTC)
-    - cron: '39 4 * * *'
+    #- cron: '39 4 * * *'
   workflow_dispatch: 
 
 jobs:
