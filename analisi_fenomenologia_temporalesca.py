@@ -69,7 +69,7 @@ def get_finestre_innesco_ensemble():
         dati_ch2 = {}
         try:
             resp_ch2 = requests.get("https://ensemble-api.open-meteo.com/v1/ensemble", 
-                                    params={**params_base, "models": "icon_ch2"}, timeout=30)
+                                    params={**params_base, "models": "meteoswiss_icon_ch2_ensemble"}, timeout=30)
             if resp_ch2.status_code == 200:
                 dati_ch2 = resp_ch2.json()
                 if 'hourly' in dati_ch2:
