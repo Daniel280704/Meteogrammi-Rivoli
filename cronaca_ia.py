@@ -11,7 +11,7 @@ try:
     locale.setlocale(locale.LC_TIME, 'it_IT.UTF-8')
 except:
     pass
-
+ 
 LAT = 45.073443
 LON = 7.543472
 
