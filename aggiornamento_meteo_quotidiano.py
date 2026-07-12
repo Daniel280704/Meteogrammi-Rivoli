@@ -5,8 +5,8 @@ from datetime import datetime, timedelta
 
 import google.generativeai as genai
 
-LAT = 45.073443
-LON = 7.543472
+LAT = 45.07347491421504
+LON = 7.543461388723449
 
 GIORNI_IT = {0: "lunedì", 1: "martedì", 2: "mercoledì", 3: "giovedì", 4: "venerdì", 5: "sabato", 6: "domenica"}
 MESI_IT = {1: "gennaio", 2: "febbraio", 3: "marzo", 4: "aprile", 5: "maggio", 6: "giugno", 
@@ -48,6 +48,12 @@ def media_lista(lista):
     if not valori_validi: return 0
     return int(round(sum(valori_validi) / len(valori_validi)))
 
+def percentuale_superamento(lista, soglia):
+    """Calcola la percentuale di membri ENS che superano una certa soglia"""
+    valori_validi = [v for v in lista if v is not None]
+    if not valori_validi: return 0
+    return (sum(1 for v in valori_validi if v >= soglia) / len(valori_validi)) * 100
+
 def interpella_gemini(dati_testuali, oggi_str, domani_str):
     api_key = os.getenv("GEMINI_API_KEY")
     genai.configure(api_key=api_key)
@@ -65,7 +71,7 @@ def interpella_gemini(dati_testuali, oggi_str, domani_str):
     6. DISAGIO TERMICO: Quando citi la temperatura massima, affianca ESATTAMENTE la dicitura sul disagio che trovi nei dati (es. inserisci testualmente "(disagio marcato 🟠)").
     
     ESEMPIO DI STILE DA IMITARE ALLA PERFEZIONE:
-    "La giornata di domenica si apre con condizioni di stabilità atmosferica. Le temperature minime si assestano sui 19°C. Durante le ore di luce il cielo si manterrà in prevalenza sereno, favorendo un ampio soleggiamento che porterà la massima a 33°C (disagio marcato 🟠). Nel tardo pomeriggio parziale aumento della nuvolosità ma senza fenomeni di rilievo."
+    "La giornata di domenica si abra con condizioni di stabilità atmosferica. Le temperature minime si assestano sui 19°C. Durante le ore di luce il cielo si manterrà in prevalenza sereno, favorendo un ampio soleggiamento che porterà la massima a 33°C (disagio marcato 🟠). Nel tardo pomeriggio parziale aumento della nuvolosità ma senza fenomeni di rilievo."
     
     DATI GIORNALIERI DA TRASFORMARE IN TESTO:
     {dati_testuali}
@@ -149,27 +155,37 @@ def main():
         w_dir = h_det.get('wind_direction_10m', [])[i]
         w_dir_str = gradi_a_direzione(w_dir)
         
+        # Estrazione Precipitazioni Membri ENS
         prec_eps_d2_membri = [h_eps_d2[k][i] for k in h_eps_d2 if k.startswith('precipitation_member')]
-        prec_eps_d2_media = sum([v for v in prec_eps_d2_membri if v is not None]) / len(prec_eps_d2_membri) if prec_eps_d2_membri else 0
-        prec_det_d2 = h_det.get('precipitation', [])[i] if 'precipitation' in h_det else prec_eps_d2_media
+        prec_eps_ch2_membri = [h_eps_ch2[k][i] for k in h_eps_ch2 if k.startswith('precipitation_member')] if ch2_disponibile else []
         
-        prec_eps_ch2_media = 0
-        if ch2_disponibile:
-            prec_eps_ch2_membri = [h_eps_ch2[k][i] for k in h_eps_ch2 if k.startswith('precipitation_member')]
-            if prec_eps_ch2_membri:
-                prec_eps_ch2_media = sum([v for v in prec_eps_ch2_membri if v is not None]) / len(prec_eps_ch2_membri)
-
+        # Calcolo percentuali di superamento soglie su ICON-D2
+        pct_d2_1mm = percentuale_superamento(prec_eps_d2_membri, 1.0)
+        pct_d2_3mm = percentuale_superamento(prec_eps_d2_membri, 3.0)
+        pct_d2_5mm = percentuale_superamento(prec_eps_d2_membri, 5.0)
+        
         instabilita = "assente"
-        if ch2_disponibile:
-            condizione = (prec_eps_d2_media >= 1) and (prec_det_d2 >= 1) and (prec_eps_ch2_media >= 1)
-        else:
-            condizione = (prec_eps_d2_media >= 1) and (prec_det_d2 >= 1)
 
-        mm_max = max(prec_eps_d2_media, prec_det_d2, prec_eps_ch2_media)
-        if condizione:
-            if mm_max >= 5: instabilita = "spiccata instabilità"
-            elif mm_max >= 3: instabilita = "marcata instabilità"
-            else: instabilita = "possibile instabilità"
+        if ch2_disponibile:
+            pct_ch2_1mm = percentuale_superamento(prec_eps_ch2_membri, 1.0)
+            pct_ch2_3mm = percentuale_superamento(prec_eps_ch2_membri, 3.0)
+            pct_ch2_5mm = percentuale_superamento(prec_eps_ch2_membri, 5.0)
+            
+            # Matrice Dinamica di Tolleranza Incrociata (D2 e CH2 online)
+            if (pct_d2_5mm >= 10) or (pct_ch2_5mm >= 10):
+                instabilita = "spiccata instabilità"
+            elif ((pct_d2_3mm >= 10) and (pct_ch2_1mm > 0)) or ((pct_ch2_3mm >= 10) and (pct_d2_1mm > 0)):
+                instabilita = "marcata instabilità"
+            elif ((pct_d2_1mm >= 10) and (pct_ch2_1mm >= 10)) or (pct_d2_1mm >= 20) or (pct_ch2_1mm >= 20):
+                instabilita = "possibile instabilità"
+        else:
+            # Fallback se ICON-CH2 è offline: Soglie rialzate e ottimizzate per singolo modello (D2)
+            if pct_d2_5mm >= 10:      # Almeno 2 spaghi su 20 sopra i 5mm
+                instabilita = "spiccata instabilità"
+            elif pct_d2_3mm >= 15:    # Almeno 3 spaghi su 20 sopra i 3mm
+                instabilita = "marcata instabilità"
+            elif pct_d2_1mm >= 20:    # Almeno 4 spaghi su 20 sopra 1mm
+                instabilita = "possibile instabilità"
 
         tipo_prec = ""
         if instabilita != "assente":
