@@ -3,7 +3,7 @@ name: ENS Rivoli
 on:
   schedule:
     # Orari in UTC (CEST - 2 ore). 
-    - cron: '*/30 * * * *'
+    - cron: '23 * * * *'
   workflow_dispatch: 
 
 jobs:
