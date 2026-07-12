@@ -235,9 +235,9 @@ def main():
             elif w_dir_str in ['E', 'NE', 'SE'] and w_gst_media > 20 and not crollo_dew:
                 vento_evento = "ventilazione umida orientale"
                 
-        if non inverno and instabilita == "assente" and w_gst_media > 40:
+        if not inverno and instabilita == "assente" and w_gst_media > 40:
             vento_evento = "improvvise raffiche (possibile outflow da temporali vicini)"
-        elif non inverno and instabilita != "assente" and w_gst_media > 40:
+        elif not inverno and instabilita != "assente" and w_gst_media > 40:
             vento_evento = f"raffiche che accompagnano il {tipo_prec}"
             
         dew_point_prev = dew_media
