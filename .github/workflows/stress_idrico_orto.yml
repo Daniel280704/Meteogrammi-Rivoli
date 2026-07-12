@@ -1,4 +1,4 @@
-name: Bollettino Agrometeo Orto
+name: Bollettino idrico orto
 
 on:
   schedule:
