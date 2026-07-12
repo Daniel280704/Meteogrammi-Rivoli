@@ -60,11 +60,13 @@ def interpella_gemini(dati_meteo, info_giornaliere):
        FÖHN/EST: Parlane SOLO se le raffiche superano i 30 km/h (es. Föhn da W/NW con crollo UR% e Dew, oppure flussi umidi da E).
     
     REGOLE DI DISAGIO TERMICO (BIOMETEOROLOGIA):
-    7. AFA/CALDO E WIND CHILL: NON devi calcolare nulla in autonomia. I livelli di disagio termico estivo (con le relative emoji) e l'eventuale freddo pungente (wind chill) sono GIA' precalcolati all'interno della stringa dei RIFERIMENTI UFFICIALI in alto. 
-       Il tuo UNICO compito è accostarli o ricopiarli testualmente accanto alle temperature (es. "raggiungendo i 33°C (forte disagio 🔴)", oppure "minime di 2°C (freddo pungente causa vento)"), senza spiegare discorsivamente il motivo per cui avviene.
+    7. AFA/CALDO E WIND CHILL: NON devi calcolare nulla in autonomia. Ricopia testualmente le diciture dai RIFERIMENTI UFFICIALI rispettando queste direttive TASSATIVE:
+       - TASSATIVO: L'indicazione del disagio estivo (es. "(disagio moderato 🟠)") va inserita ESCLUSIVAMENTE e rigorosamente accanto alla temperatura MASSIMA. È severamente vietato nominarlo quando parli delle minime o della notte.
+       - TASSATIVO: L'indicazione del freddo pungente (wind chill) va inserita ESCLUSIVAMENTE accanto alla temperatura MINIMA.
+       - Non aggiungere spiegazioni personali sul perché avvenga il disagio.
     
     DIVIETO SUI TERMINI TECNICI:
-    8. È severamente VIETATO menzionare i nomi delle colonne (come "Wet_Bulb", "T_925hPa", "Dew").
+    8. È severamente VIETATO menzionare i nomi delle colonne (come "Wet_Bulb", "T_925hPa", "Dew", "Raffiche").
     
     DATI ANALITICI ORARI (Ora | T | UR% | Dew | Prob | Vento | Raffiche | Dir | Z.Termico | Wet_B | T_925 | T_900 | T_850 | T_800):
     {dati_meteo}
