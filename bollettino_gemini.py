@@ -60,8 +60,8 @@ def interpella_gemini(dati_meteo, info_giornaliere):
        FÖHN/EST: Parlane SOLO se le raffiche superano i 30 km/h (es. Föhn da W/NW con crollo UR% e Dew, oppure flussi umidi da E).
     
     REGOLE DI DISAGIO TERMICO (BIOMETEOROLOGIA):
-    7. AFA/CALDO: NON devi calcolare nulla. Il livello di disagio è già presente nei RIFERIMENTI UFFICIALI in alto. Limitati a ricopiare il testo (es. "raggiungendo i 33°C (Disagio Moderato)") senza mai spiegare il motivo nel bollettino.
-       WIND CHILL: Se T_Media <= 8°C e Vento >= 15 km/h, spiega che il vento renderà il freddo pungente.
+    7. AFA/CALDO E WIND CHILL: NON devi calcolare nulla in autonomia. I livelli di disagio termico estivo (con le relative emoji) e l'eventuale freddo pungente (wind chill) sono GIA' precalcolati all'interno della stringa dei RIFERIMENTI UFFICIALI in alto. 
+       Il tuo UNICO compito è accostarli o ricopiarli testualmente accanto alle temperature (es. "raggiungendo i 33°C (forte disagio 🔴)", oppure "minime di 2°C (freddo pungente causa vento)"), senza spiegare discorsivamente il motivo per cui avviene.
     
     DIVIETO SUI TERMINI TECNICI:
     8. È severamente VIETATO menzionare i nomi delle colonne (come "Wet_Bulb", "T_925hPa", "Dew").
@@ -118,6 +118,9 @@ def main():
     
     disagio_oggi_score = 0
     disagio_domani_score = 0
+    
+    wind_chill_oggi = False
+    wind_chill_domani = False
 
     t_det_list = hourly_det.get('temperature_2m', [])
     ur_list = hourly_det.get('relative_humidity_2m', [])
@@ -186,19 +189,24 @@ def main():
         dir_str = gradi_a_direzione(wd_val)
         wg_val = round(wg_list[i]) if i < len(wg_list) else 0
 
-        # Calcolo Disagio Termico in Python
+        # Disagio Caldo
         d_score = 0
         if (temp_finale >= 32 and dew >= 20) or (temp_finale >= 30 and dew >= 24):
             d_score = 2
         elif (temp_finale >= 28 and dew >= 15) or (temp_finale >= 25 and dew >= 20):
             d_score = 1
+            
+        # Wind Chill (Freddo pungente)
+        wc_flag = (temp_finale <= 8 and vento_finale >= 15)
 
         if i < 24:
             temp_oggi.append(temp_finale)
             disagio_oggi_score = max(disagio_oggi_score, d_score)
+            if wc_flag: wind_chill_oggi = True
         else:
             temp_domani.append(temp_finale)
             disagio_domani_score = max(disagio_domani_score, d_score)
+            if wc_flag: wind_chill_domani = True
 
         start_j = max(0, i - 3)
         end_j = min(48, i + 4)
@@ -228,20 +236,26 @@ def main():
 
         report += f"{orari[i][-5:]} | {temp_finale}°C | {ur}% | {dew}°C | {prob} | {vento_finale} km/h | {wg_val} km/h | {dir_str} | {z_term_val}m | {wet_bulb_val}°C | {t925_val}°C | {t900_val}°C | {t850_val}°C | {t800_val}°C\n"
 
+    # Preparazione testuale dei Disagi (Caldo / Freddo)
+    is_summer = 5 <= datetime.now().month <= 10
+
     def formatta_disagio(score):
-        if score == 2: return " (Forte Disagio)"
-        if score == 1: return " (Disagio Moderato)"
-        return ""
+        if score == 2: return " (forte disagio 🔴)" if is_summer else ""
+        if score == 1: return " (disagio moderato 🟠)" if is_summer else ""
+        return " (assenza di disagio 🟢)" if is_summer else ""
 
     min_oggi, max_oggi = (min(temp_oggi), max(temp_oggi)) if temp_oggi else ("N/A", "N/A")
     min_domani, max_domani = (min(temp_domani), max(temp_domani)) if temp_domani else ("N/A", "N/A")
     
     str_disagio_oggi = formatta_disagio(disagio_oggi_score)
     str_disagio_domani = formatta_disagio(disagio_domani_score)
+    
+    str_wc_oggi = " (freddo pungente causa vento)" if wind_chill_oggi else ""
+    str_wc_domani = " (freddo pungente causa vento)" if wind_chill_domani else ""
 
     info_giornaliere = f"""
-    {datetime.now().strftime("%A %d %B")}: Min {min_oggi}°C, Max {max_oggi}°C{str_disagio_oggi}
-    {(datetime.now() + timedelta(days=1)).strftime("%A %d %B")}: Min {min_domani}°C, Max {max_domani}°C{str_disagio_domani}
+    {datetime.now().strftime("%A %d %B")}: Min {min_oggi}°C{str_wc_oggi}, Max {max_oggi}°C{str_disagio_oggi}
+    {(datetime.now() + timedelta(days=1)).strftime("%A %d %B")}: Min {min_domani}°C{str_wc_domani}, Max {max_domani}°C{str_disagio_domani}
     """
 
     bollettino = interpella_gemini(report, info_giornaliere)
