@@ -45,7 +45,7 @@ def interpella_gemini(dati_meteo, info_giornaliere, oggi_str, domani_str):
     
     REGOLA NUVOLOSITÀ E STATO DEL CIELO:
     3. Analizza la colonna 'Cielo' (precalcolata in base al soleggiamento reale).
-       - TASSATIVO: Per le ore della NOTTE è severamente vietato parlare di nuvolosità o stato del cielo. Ignora totalmente l'argomento.
+       - TASSATIVO: Per le ore contrassegnate come 'Notte' è severamente vietato parlare di nuvolosità o stato del cielo. Ignora totalmente l'argomento per quelle fasce orarie.
        - Per le ore diurne, sii MOLTO CONCISO. Menziona il cielo rapidamente indicando solo lo stato generale o le variazioni significative durante la giornata. Non dilungarti.
     
     REGOLA PRECIPITAZIONI E PROBABILITÀ (CRITICA):
@@ -95,6 +95,7 @@ def estrai_membri(hourly_data, prefisso_variabile, indice_ora):
     return valori
 
 def main():
+    # Rimossa la colonna cloud_cover, mantenuto solo sunshine_duration e is_day
     dati_det = requests.get("https://api.open-meteo.com/v1/forecast", params={
         "latitude": LAT, "longitude": LON,
         "hourly": "temperature_2m,relative_humidity_2m,dew_point_2m,freezinglevel_height,wet_bulb_temperature_2m,temperature_925hPa,temperature_900hPa,temperature_850hPa,temperature_800hPa,wind_direction_10m,wind_gusts_10m,sunshine_duration,is_day",
@@ -204,10 +205,21 @@ def main():
         is_day_val = is_day_list[i] if i < len(is_day_list) else 1
         sun_val = round(sun_list[i] / 60) if (i < len(sun_list) and sun_list[i] is not None) else 0
 
-        # Logica rigorosa sul soleggiamento per lo Stato del Cielo
-        if is_day_val == 0:
+        # Rilevamento alba e tramonto (Fascia crepuscolare +/- 2 ore)
+        is_twilight = False
+        if is_day_val == 1:
+            for offset in [-2, -1, 1, 2]:
+                idx = i + offset
+                if 0 <= idx < len(is_day_list) and is_day_list[idx] == 0:
+                    is_twilight = True
+                    break
+
+        # Logica esclusiva basata sul soleggiamento per lo Stato del Cielo
+        if is_day_val == 0 or is_twilight:
+            # Notte o crepuscolo: etichettiamo come "Notte" e Gemini ignorerà l'argomento
             cielo_str = "Notte"
         else:
+            # Deep Day: classificazione rigorosa sui minuti di sole
             if sun_val >= 50:
                 cielo_str = "In prevalenza sereno"
             elif sun_val >= 30:
