@@ -31,8 +31,11 @@ def interpella_gemini(dati_meteo, info_giornaliere):
 
     prompt = f"""
     Sei un meteorologo professionista. Scrivi un bollettino meteo discorsivo per Rivoli (TO) per le prossime 48 ore.
-    Oggi è {oggi_str}, domani sarà {domani_str}.
     
+    TITOLO OBBLIGATORIO:
+    Inizia il testo ESATTAMENTE con questo titolo in grassetto: **Aggiornamento meteo di {oggi_str}**
+    (Non aggiungere "Ecco il bollettino" o altre frasi prima del titolo).
+
     RIFERIMENTI UFFICIALI (Usa questi valori testualmente per le temperature min/max e disagio):
     {info_giornaliere}
 
@@ -41,9 +44,8 @@ def interpella_gemini(dati_meteo, info_giornaliere):
     2. Usa le temperature min/max fornite nei RIFERIMENTI UFFICIALI come base della narrazione.
     
     REGOLA NUVOLOSITÀ E STATO DEL CIELO:
-    3. Analizza le colonne 'Nubi%' (copertura totale) e 'Sole' (minuti di sole su 60):
-       - Usa termini precisi: cielo sereno (Nubi < 20%), poco/parzialmente nuvoloso, molto nuvoloso, coperto (Nubi > 80%).
-       - Valuta i minuti di Sole per confermare se le nubi oscureranno totalmente il sole o se ci saranno ampie schiarite.
+    3. Analizza la colonna 'Cielo', che contiene già la classificazione esatta (Sereno, Parzialmente nuvoloso, Irregolarmente nuvoloso, Molto nuvoloso, Coperto).
+       - Sii MOLTO CONCISO sulla nuvolosità. Menzionala rapidamente indicando solo lo stato generale o le variazioni significative durante la giornata, senza dilungarti in descrizioni pesanti.
     
     REGOLA PRECIPITAZIONI E PROBABILITÀ (CRITICA):
     4. Analizza 'Probabilità'. Se indica 'Assente', IGNORA TOTALMENTE il tema della pioggia.
@@ -64,16 +66,16 @@ def interpella_gemini(dati_meteo, info_giornaliere):
     7. REGOLA DEL SILENZIO: Se nella colonna 'Raffiche' NESSUN valore raggiunge o supera i 30 km/h, è ASSOLUTAMENTE VIETATO menzionare il vento o la ventilazione nel bollettino.
        FÖHN/EST: Parlane SOLO se le raffiche superano i 30 km/h (es. Föhn da W/NW con crollo UR% e Dew, oppure flussi umidi da E).
     
-    REGOLE DI DISAGIO TERMICO (BIOMETEOROLOGIA):
-    8. AFA/CALDO E WIND CHILL: NON devi calcolare nulla in autonomia. Ricopia testualmente le diciture dai RIFERIMENTI UFFICIALI rispettando queste direttive TASSATIVE:
-       - TASSATIVO: L'indicazione del disagio estivo (es. "(disagio moderato 🟠)") va inserita ESCLUSIVAMENTE e rigorosamente accanto alla temperatura MASSIMA. È severamente vietato nominarlo quando parli delle minime o della notte.
-       - TASSATIVO: L'indicazione del freddo pungente (wind chill) va inserita ESCLUSIVAMENTE accanto alla temperatura MINIMA.
-       - Non aggiungere spiegazioni personali sul perché avvenga il disagio.
+    REGOLE DI DISAGIO TERMICO E WIND CHILL:
+    8. NON calcolare nulla in autonomia. Ricopia testualmente le diciture dai RIFERIMENTI UFFICIALI:
+       - TASSATIVO: L'indicazione estiva (es. "(disagio moderato 🟠)") va ESCLUSIVAMENTE accanto alla T_Massima. Vietato nominarlo per la notte o le minime.
+       - TASSATIVO: Il freddo pungente va ESCLUSIVAMENTE accanto alla T_Minima.
+       - Non aggiungere spiegazioni personali del fenomeno.
     
     DIVIETO SUI TERMINI TECNICI:
-    9. È severamente VIETATO menzionare i nomi delle colonne (come "Wet_Bulb", "T_925hPa", "Dew", "Raffiche", "Nubi%", "Sole").
+    9. È severamente VIETATO menzionare i nomi delle colonne (come "Cielo", "Wet_Bulb", "T_925hPa", "Dew", "Raffiche").
     
-    DATI ANALITICI ORARI (Ora | T | Nubi% | Sole | UR% | Dew | Prob | Vento | Raff | Dir | Z.Termico | Wet_B | T_925 | T_900 | T_850 | T_800):
+    DATI ANALITICI ORARI (Ora | T | Cielo | UR% | Dew | Prob | Vento | Raff | Dir | Z.Termico | Wet_B | T_925 | T_900 | T_850 | T_800):
     {dati_meteo}
     """
 
@@ -92,7 +94,6 @@ def estrai_membri(hourly_data, prefisso_variabile, indice_ora):
     return valori
 
 def main():
-    # Aggiunti cloud_cover e sunshine_duration alla chiamata API deterministica
     dati_det = requests.get("https://api.open-meteo.com/v1/forecast", params={
         "latitude": LAT, "longitude": LON,
         "hourly": "temperature_2m,relative_humidity_2m,dew_point_2m,freezinglevel_height,wet_bulb_temperature_2m,temperature_925hPa,temperature_900hPa,temperature_850hPa,temperature_800hPa,wind_direction_10m,wind_gusts_10m,cloud_cover,sunshine_duration",
@@ -119,7 +120,7 @@ def main():
     hourly_ch2 = dati_eps_ch2.get('hourly', {})
     orari = hourly_det.get('time', [])
     
-    report = "Ora | T | Nubi% | Sole | UR% | Dew | Prob | Vento | Raff | Dir | Z.Termico | Wet_B | T_925 | T_900 | T_850 | T_800\n"
+    report = "Ora | T | Cielo | UR% | Dew | Prob | Vento | Raff | Dir | Z.Termico | Wet_B | T_925 | T_900 | T_850 | T_800\n"
     
     temp_oggi = []
     temp_domani = []
@@ -141,8 +142,6 @@ def main():
     t800_list = hourly_det.get('temperature_800hPa', [])
     wd_list = hourly_det.get('wind_direction_10m', [])
     wg_list = hourly_det.get('wind_gusts_10m', [])
-    
-    # Nuove liste nubi e sole
     cc_list = hourly_det.get('cloud_cover', [])
     sun_list = hourly_det.get('sunshine_duration', [])
 
@@ -201,9 +200,20 @@ def main():
         dir_str = gradi_a_direzione(wd_val)
         wg_val = round(wg_list[i]) if i < len(wg_list) else 0
         
-        # Estrazione Nubi e conversione Sole da secondi a minuti
         cc_val = cc_list[i] if i < len(cc_list) else 0
         sun_val = round(sun_list[i] / 60) if (i < len(sun_list) and sun_list[i] is not None) else 0
+
+        # Logica rigorosa per lo Stato del Cielo
+        if cc_val > 80 and sun_val <= 10:
+            cielo_str = "Coperto"
+        elif cc_val > 60 and sun_val <= 20:
+            cielo_str = "Molto nuvoloso"
+        elif cc_val > 30:
+            cielo_str = "Irregolarmente nuvoloso"
+        elif cc_val >= 10:
+            cielo_str = "Parzialmente nuvoloso"
+        else:
+            cielo_str = "Sereno"
 
         d_score = 0
         if (temp_finale >= 32 and dew >= 20) or (temp_finale >= 30 and dew >= 24):
@@ -248,7 +258,7 @@ def main():
             elif max3 >= 10: prob = f"{livello(max3)} pioggia moderata o instabilità sparsa"
             elif max1 >= 10: prob = f"{livello(max1)} pioggia debole o instabilità isolata"
 
-        report += f"{orari[i][-5:]} | {temp_finale}°C | {cc_val}% | {sun_val}m | {ur}% | {dew}°C | {prob} | {vento_finale} km/h | {wg_val} km/h | {dir_str} | {z_term_val}m | {wet_bulb_val}°C | {t925_val}°C | {t900_val}°C | {t850_val}°C | {t800_val}°C\n"
+        report += f"{orari[i][-5:]} | {temp_finale}°C | {cielo_str} | {ur}% | {dew}°C | {prob} | {vento_finale} km/h | {wg_val} km/h | {dir_str} | {z_term_val}m | {wet_bulb_val}°C | {t925_val}°C | {t900_val}°C | {t850_val}°C | {t800_val}°C\n"
 
     is_summer = 5 <= datetime.now().month <= 10
 
