@@ -44,8 +44,9 @@ def interpella_gemini(dati_meteo, info_giornaliere):
     2. Usa le temperature min/max fornite nei RIFERIMENTI UFFICIALI come base della narrazione.
     
     REGOLA NUVOLOSITÀ E STATO DEL CIELO:
-    3. Analizza la colonna 'Cielo', che contiene già la classificazione esatta (Sereno, Parzialmente nuvoloso, Irregolarmente nuvoloso, Molto nuvoloso, Coperto).
-       - Sii MOLTO CONCISO sulla nuvolosità. Menzionala rapidamente indicando solo lo stato generale o le variazioni significative durante la giornata, senza dilungarti in descrizioni pesanti.
+    3. Analizza la colonna 'Cielo' (precalcolata in base al soleggiamento reale).
+       - TASSATIVO: Per le ore della NOTTE è severamente vietato parlare di nuvolosità o stato del cielo. Ignora totalmente l'argomento.
+       - Per le ore diurne, sii MOLTO CONCISO. Menziona il cielo rapidamente indicando solo lo stato generale o le variazioni significative durante la giornata. Non dilungarti.
     
     REGOLA PRECIPITAZIONI E PROBABILITÀ (CRITICA):
     4. Analizza 'Probabilità'. Se indica 'Assente', IGNORA TOTALMENTE il tema della pioggia.
@@ -94,9 +95,10 @@ def estrai_membri(hourly_data, prefisso_variabile, indice_ora):
     return valori
 
 def main():
+    # Aggiunti sunshine_duration e is_day per calcolare giorno/notte e soleggiamento
     dati_det = requests.get("https://api.open-meteo.com/v1/forecast", params={
         "latitude": LAT, "longitude": LON,
-        "hourly": "temperature_2m,relative_humidity_2m,dew_point_2m,freezinglevel_height,wet_bulb_temperature_2m,temperature_925hPa,temperature_900hPa,temperature_850hPa,temperature_800hPa,wind_direction_10m,wind_gusts_10m,cloud_cover,sunshine_duration",
+        "hourly": "temperature_2m,relative_humidity_2m,dew_point_2m,freezinglevel_height,wet_bulb_temperature_2m,temperature_925hPa,temperature_900hPa,temperature_850hPa,temperature_800hPa,wind_direction_10m,wind_gusts_10m,sunshine_duration,is_day",
         "models": "icon_d2",
         "timezone": "Europe/Rome", "forecast_days": 2
     }).json()
@@ -142,8 +144,8 @@ def main():
     t800_list = hourly_det.get('temperature_800hPa', [])
     wd_list = hourly_det.get('wind_direction_10m', [])
     wg_list = hourly_det.get('wind_gusts_10m', [])
-    cc_list = hourly_det.get('cloud_cover', [])
     sun_list = hourly_det.get('sunshine_duration', [])
+    is_day_list = hourly_det.get('is_day', [])
 
     p1_d2_all, p3_d2_all, p5_d2_all = [], [], []
     p1_ch_all, p3_ch_all, p5_ch_all = [], [], []
@@ -200,20 +202,23 @@ def main():
         dir_str = gradi_a_direzione(wd_val)
         wg_val = round(wg_list[i]) if i < len(wg_list) else 0
         
-        cc_val = cc_list[i] if i < len(cc_list) else 0
+        is_day_val = is_day_list[i] if i < len(is_day_list) else 1
         sun_val = round(sun_list[i] / 60) if (i < len(sun_list) and sun_list[i] is not None) else 0
 
-        # Logica rigorosa per lo Stato del Cielo
-        if cc_val > 80 and sun_val <= 10:
-            cielo_str = "Coperto"
-        elif cc_val > 60 and sun_val <= 20:
-            cielo_str = "Molto nuvoloso"
-        elif cc_val > 30:
-            cielo_str = "Irregolarmente nuvoloso"
-        elif cc_val >= 10:
-            cielo_str = "Parzialmente nuvoloso"
+        # Logica rigorosa sul soleggiamento per lo Stato del Cielo
+        if is_day_val == 0:
+            cielo_str = "Notte"
         else:
-            cielo_str = "Sereno"
+            if sun_val >= 50:
+                cielo_str = "In prevalenza sereno"
+            elif sun_val >= 30:
+                cielo_str = "Parzialmente nuvoloso"
+            elif sun_val >= 20:
+                cielo_str = "Da parzialmente a irregolarmente nuvoloso"
+            elif sun_val >= 5:
+                cielo_str = "Irregolarmente nuvoloso"
+            else:
+                cielo_str = "Coperto"
 
         d_score = 0
         if (temp_finale >= 32 and dew >= 20) or (temp_finale >= 30 and dew >= 24):
