@@ -1,4 +1,4 @@
-name: Invio Tendenza Medio Termine
+name: aggiornamento meteo a medio termine
 
 on:
   schedule:
@@ -26,4 +26,4 @@ jobs:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: python tendenza_settimanale.py
+        run: python aggiornamento_meteo_medio_termine.py
