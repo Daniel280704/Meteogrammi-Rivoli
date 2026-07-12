@@ -1,16 +1,4 @@
 #!/usr/bin/env python3
-"""
-Meteogramma per Rivoli (TO) basato su modelli ICON e AROME.
-- Versione 13.1 (Modificata): Estensione automatica a 3 giorni, layout a tre livelli.
-- Rimozione del Run dal titolo.
-- Anti-Spam: Il bot NON INVIA e non genera nulla se i dati sono identici a prima.
-- Sistema Anti-Crash con auto-retry per errore 503.
-- Integrazione Bot Telegram per invio automatico dei grafici generati.
-
-Uso:
-    python3 meteogramma_rivoli_gemini_13_bot.py --modello d2
-"""
-
 import argparse
 import math
 import sys
@@ -25,8 +13,8 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import matplotlib.ticker as mticker
 
-LAT_RIVOLI = 45.0716
-LON_RIVOLI = 7.5157
+LAT = 45.07347491421504
+LON = 7.543461388723449
 
 ENSEMBLE_URL = "https://ensemble-api.open-meteo.com/v1/ensemble"
 FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
@@ -114,22 +102,26 @@ def verifica_dati_nuovi(dati: dict, dati_det: dict, modello: str) -> bool:
     return is_nuovo
 
 
-def fetch_con_retry(url: str, params: dict, max_retries: int = 3) -> dict:
+def fetch_con_retry(url: str, params: dict, max_retries: int = 2) -> dict:
     for tentativo in range(max_retries):
         try:
-            resp = requests.get(url, params=params, timeout=30)
+            # Aumentato il timeout a 90 secondi (1.5 minuti)
+            resp = requests.get(url, params=params, timeout=90)
             resp.raise_for_status()
             return resp.json()
         except requests.exceptions.HTTPError as e:
             if resp.status_code in [502, 503, 504]:
                 print(f"\n⚠️ Il server di Open-Meteo è occupato (Errore {resp.status_code}).", file=sys.stderr)
-                print(f"⏳ Attendo 4 secondi e ritento... (Tentativo {tentativo + 1} di {max_retries})", file=sys.stderr)
-                time.sleep(4)
+                if tentativo < max_retries - 1:
+                    print(f"⏳ Attendo 10 secondi e ritento... (Tentativo {tentativo + 1} di {max_retries})", file=sys.stderr)
+                    time.sleep(10)
             else:
                 raise e
         except requests.exceptions.RequestException as e:
             print(f"\n❌ Errore di connessione a internet: {e}", file=sys.stderr)
-            time.sleep(2)
+            if tentativo < max_retries - 1:
+                print(f"⏳ Attendo 10 secondi e ritento... (Tentativo {tentativo + 1} di {max_retries})", file=sys.stderr)
+                time.sleep(10)
             
     raise Exception("Impossibile scaricare i dati: il server è rimasto bloccato. Riprova più tardi.")
 
@@ -429,6 +421,20 @@ def invia_telegram(percorso_file: str, didascalia: str):
         print(f"❌ Errore invio Telegram: {e}", file=sys.stderr)
 
 
+def invia_messaggio_testo_telegram(testo: str):
+    token = os.getenv("TELEGRAM_TOKEN")
+    chat_id = os.getenv("TELEGRAM_CHAT_ID")
+    
+    if not token or not chat_id:
+        return
+        
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
+    try:
+        requests.post(url, data={"chat_id": chat_id, "text": testo})
+    except Exception as e:
+        print(f"❌ Errore invio Telegram testuale: {e}", file=sys.stderr)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Meteogrammi ad alta risoluzione a layout dinamico")
     parser.add_argument("--lat", type=float, default=LAT_RIVOLI, help="Latitudine")
@@ -452,9 +458,11 @@ def main():
     # Verifica se i dati sono cambiati rispetto all'ultima volta
     is_nuovo = verifica_dati_nuovi(dati, dati_det, args.modello)
     
-    # Se i dati NON sono nuovi, fermiamo l'esecuzione per questo specifico modello pulitamente
+    # Se i dati NON sono nuovi, avvisa in chat e ferma l'esecuzione per questo specifico modello
     if not is_nuovo:
         print(f"ℹ️ Nessun aggiornamento trovato per {args.modello.upper()} rispetto all'ultimo grafico. Invio annullato.")
+        nome_modello = MODELLI[args.modello]["nome"]
+        invia_messaggio_testo_telegram(f"Il modello {nome_modello} non ha ancora runnato.")
         sys.exit(0)
         
     print(f"ℹ️ Trovati dati aggiornati per il modello {args.modello.upper()}. Generazione in corso...")
