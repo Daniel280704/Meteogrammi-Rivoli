@@ -122,7 +122,7 @@ def interpella_groq(dati_testuali, oggi_str, giorni_str):
     ESEMPIO DI STILE INVERNALE DA IMITARE:
     <b>Aggiornamento meteo a medio termine di domenica 12 dicembre</b>
 
-    La giornata di {giorni_str[2]} vedrà un progressivo peggioramento. Le temperature oscilleranno tra una minima di 4°C e una massima di 8°C (nessun disagio o freddo tollerabile 🟢). Dal pomeriggio è atteso il transito di una perturbazione con piogge deboli, che si intensificheranno in serata divenendo moderate. Il picco massimo delle precipitazioni è atteso intorno alle 21:00 con circa 4.5 mm/h. La ventilazione si manterrà modesta umida orientale.
+    La giornata di {giorni_str[2]} vedrà un progressivo peggioramento. Le temperature oscilleranno tra una minima di 4°C e una massima di 8°C (nessun disagio o freddo tollerabile 🟢). Dal pomeriggio è atteso il transito di una perturbazione con piogge deboli, che si intensificheranno in serata divenendo moderate. Il picco massimo delle precipitazioni è atteso intorno alle 21:00 con circa 4.5 mm/h. La ventilazione si manterrà forte umida orientale.
     La giornata di {giorni_str[3]} sarà caratterizzata...
     Infine, per {giorni_str[4]} assisteremo a...
     
@@ -399,14 +399,14 @@ def main():
                     is_fohn = w_dir_str in ['NW', 'N', 'W'] and aumento_vento and crollo_dew
                     is_oriente = w_dir_str in ['E', 'NE', 'SE'] and aumento_ur
                     
-                    if is_fohn and int_vento != "blanda":
+                    if is_fohn and int_vento not in ["blanda", "modesta"]:
                         vento_evento = f"ventilazione {int_vento} da probabile Föhn"
-                    elif is_oriente and int_vento != "blanda":
+                    elif is_oriente and int_vento not in ["blanda", "modesta"]:
                         vento_evento = f"ventilazione {int_vento} umida orientale"
-                    elif int_vento != "blanda":
+                    elif int_vento not in ["blanda", "modesta"]:
                         vento_evento = f"ventilazione {int_vento}"
             else:
-                if int_vento != "blanda":
+                if int_vento not in ["blanda", "modesta"]:
                     vento_evento = f"ventilazione {int_vento}"
                             
         dew_point_prev = dew_media
