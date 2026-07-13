@@ -172,19 +172,20 @@ def interpella_groq(report_tecnico, giorno_str):
     client = Groq(api_key=api_key)
     
     prompt = f"""
-    Sei un meteorologo esperto in dinamiche convettive. Il tuo compito è stilare un bollettino di analisi 
-    tecnica sul TIPO DI SETUP a disposizione dell'atmosfera per il giorno {giorno_str} a Rivoli (TO).
+    Sei un meteorologo che deve comunicare un avviso rapido al pubblico generale. Il tuo compito è stilare un BREVE riassunto discorsivo sui rischi principali in caso di temporali per il giorno {giorno_str} a Rivoli (TO).
 
     DATI ESTRATTI NELLA FINESTRA PRECIPITATIVA (Media dei parametri):
     {report_tecnico}
 
     REGOLE RIGOROSE:
-    1. INNESCabilità CONDIZIONATA: Non dare la precipitazione o i temporali per certi. L'inibizione convettiva (CIN) o l'assenza di trigger dinamici potrebbero annullare tutto. Inizia l'analisi esplicitando questo concetto (es. "Qualora il sistema riesca a superare l'inibizione convettiva...", "In caso di effettivo innesco...").
-    2. LINGUAGGIO TECNICO MA CHIARO: Sei rivolto a un appassionato di meteorologia. Analizza i dati numerici forniti (Lapse Rate, DLS, LLS, LCL, Traslazione).
-    3. TRASLAZIONE: Usa il parametro "Vettore Traslazione (CBL Wind)" per dedurre se il sistema sarà veloce (squall line) o stazionario/lento (rischio flash flood). Se < 20 km/h il rischio accumuli locali è alto.
-    4. STRUTTURA CELLE: Usa DLS (Deep Layer Shear) per determinare la tipologia. < 12 m/s: Cella singola/Pulse storm. 12-20 m/s: Multicelle. > 20 m/s: Rischio Supercelle.
-    5. FENOMENOLOGIA: Valuta il rischio Downburst incrociando l'umidità a 700 hPa (< 50% alta probabilità di raffiche secche) e il lapse rate. Includi la stima grandine del modello.
-    6. Non superare i due/tre paragrafi ben scorrevoli. Non dare raccomandazioni di protezione civile.
+    1. CONDIZIONALITÀ ASSOLUTA: Inizia e mantieni sempre il discorso evidenziando l'incertezza dell'innesco (es. "Nella giornata di {giorno_str}, nel caso in cui dovesse verificarsi un temporale...", "Qualora si formassero dei rovesci..."). I temporali non sono una certezza.
+    2. LINGUAGGIO PER L'UTENTE MEDIO: Non usare ASSOLUTAMENTE NESSUN termine tecnico. Zero riferimenti a CAPE, DLS, LLS, Lapse Rate, Vettore Traslazione, Base Nubi, ecc.
+    3. FOTOGRAFA LE CRITICITÀ PRINCIPALI traducendo i dati in fenomeni pratici:
+       - Se il "Vettore Traslazione" è basso (< 20 km/h), evidenzia il rischio di "locali allagamenti" o "possibili accumuli ingenti per precipitazioni stazionarie".
+       - Se la "Stima grandine" del modello indica "MEDIA" o "GROSSA", segnala esplicitamente il rischio di "grandine anche di grosse dimensioni".
+       - Se il "Deep Layer Shear" è alto (> 20 m/s) o l'umidità a 700hPa è bassa (< 50%), avvisa della possibilità di "forti raffiche di vento lineare (downburst)".
+    4. SINTESI ESTREMA: Scrivi un solo paragrafo fluido di massimo due/tre frasi. Esempio di tono: "Nella giornata di mercoledì, nel caso in cui dovessero svilupparsi dei temporali, le criticità maggiori potrebbero derivare da locali allagamenti per le piogge stazionarie e possibili forti raffiche di vento."
+    5. NESSUNA raccomandazione comportamentale o di protezione civile, limitati a descrivere puramente l'intensità dei fenomeni attesi.
     """
 
     try:
