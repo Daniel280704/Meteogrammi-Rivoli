@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import os
+import sys
 import requests
 from datetime import datetime, timedelta
 
@@ -72,7 +73,7 @@ def interpella_gemini(dati_testuali, oggi_str, giorni_str):
     9. FILTRO INSTABILITÀ: Se all'interno della stessa giornata ci sono più orari con "possibile instabilità", individua quello con la percentuale di probabilità più alta e descrivi ESCLUSIVAMENTE quello nel bollettino. Ignora e non menzionare in alcun modo gli altri momenti di instabilità della stessa giornata.
     
     ESEMPIO DI STILE DA IMITARE ALLA PERFEZIONE:
-    "La giornata di {giorni_str[2]} si aprirà con condizioni di stabilità atmosferica. Le temperature minime si assesteranno sui 19°C. Durante le ore di luce il cielo si manterrà in prevalenza sereno, favorendo un ampio soleggiamento che porterà la massima a 33°C (disagio marcato 🟠). Nel tardo pomeriggio si segnala una possibile instabilità (40%) con rischio di rovesci, associati al rischio di deboli raffiche di vento improvvise. In serata la situazione volgerà al miglioramento."
+    "La giornata di {giorni_str[2]} si aprirà con condizioni di stabilità atmosferica. Le temperature minime si assesteranno sui 19°C. Durante le ore di luce il cielo si manterrà in prevalenza sereno, favorendo un ampio soleggiamento che porterà la massima a 33°C (disagio marcato 🟠). Nel tardo pomeriggio si segnala una possibile instabilità (40%) con rischio di rovesci. In serata la situazione volgerà al miglioramento."
     
     DATI GIORNALIERI DA TRASFORMARE IN TESTO:
     {dati_testuali}
@@ -88,6 +89,17 @@ def main():
     inverno = mese_corrente in [11, 12, 1, 2, 3]
     estate = mese_corrente in [5, 6, 7, 8, 9, 10]
     
+    # --- BLOCCO SEMAFORO: CONTROLLO INIZIALE ---
+    FILE_LOCK = "lock_medio_termine.txt"
+    oggi_str_lock = datetime.now().strftime("%Y-%m-%d")
+    
+    if os.path.exists(FILE_LOCK):
+        with open(FILE_LOCK, "r") as f:
+            if f.read().strip() == oggi_str_lock:
+                print("✅ Bollettino a medio termine già inviato oggi. Esecuzione terminata.")
+                sys.exit(0)
+    # -------------------------------------------
+
     dt_oggi = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
     dt_inizio_estrazione = dt_oggi + timedelta(days=2)
     dt_fine_estrazione = dt_oggi + timedelta(days=4)
@@ -343,11 +355,9 @@ def main():
         
         if instabilita != "assente":
             str_instabilita = f"{instabilita} ({probabilita}%)"
-            if "rischio di" in vento_evento and "raffiche" in vento_evento:
-                record += f" Si segnala {str_instabilita} con possibilità di {tipo_prec}, associati al {vento_evento}."
-                vento_evento = "" # Azzerato per non ripeterlo da solo
-            else:
-                record += f" Si segnala {str_instabilita} con possibilità di {tipo_prec}."
+            record += f" Si segnala {str_instabilita} con possibilità di {tipo_prec}."
+            if "raffiche" in vento_evento:
+                vento_evento = ""
                 
         if vento_evento: record += f" {vento_evento}."
         if nebbia: record += f" {nebbia}."
@@ -388,6 +398,10 @@ def main():
                       data={"chat_id": chat_id, "text": bollettino_finale, "parse_mode": "Markdown"})
         if risposta_tg.status_code == 200:
             print("Bollettino a medio termine inviato con successo!")
+            # --- BLOCCO SEMAFORO: AGGIORNAMENTO DOPO IL SUCCESSO ---
+            with open(FILE_LOCK, "w") as f:
+                f.write(oggi_str_lock)
+            # --------------------------------------------------------
         else:
             print(f"Errore Telegram: {risposta_tg.text}")
     else:
