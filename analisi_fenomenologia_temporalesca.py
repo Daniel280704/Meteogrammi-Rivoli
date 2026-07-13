@@ -114,7 +114,7 @@ def get_finestre_innesco_ensemble():
                         
                     # Verifica condizione di innesco forte
                     if ch2_disponibile:
-                        if membri_d2 >= 4 and membri_ch2 >= 4
+                        if membri_d2 >= 4 and membri_ch2 >= 4:
                     else:
                         if membri_d2 >= 6:
                             innesco_valido = True
