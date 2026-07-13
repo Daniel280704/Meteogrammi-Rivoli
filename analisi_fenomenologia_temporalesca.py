@@ -5,7 +5,7 @@ Modello: ICON-D2 (Copertura 48h)
 - Trigger basato su singoli scenari: >= 1 spago D2 e >= 1 spago CH2 (Fallback: >= 2 spaghi D2) con precipitazioni >= 1mm
 - Estrazione setup condizionata alla finestra precipitativa
 - Calcolo del vettore di traslazione del sistema (Cloud Bearing Layer)
-- Analisi diagnostica tecnica tramite Gemini AI
+- Analisi diagnostica tecnica tramite Groq AI (Llama 3.3 70B)
 """
 
 import os
@@ -13,7 +13,6 @@ import sys
 import math
 import requests
 from datetime import datetime, timedelta
-
 from groq import Groq
 
 # Coordinate - Rivoli (TO)
@@ -67,7 +66,7 @@ def get_finestre_innesco_ensemble():
         dati_ch2 = {}
         try:
             resp_ch2 = requests.get("https://ensemble-api.open-meteo.com/v1/ensemble", 
-                                    params={**params_base, "models": "meteoswiss_icon_ch2_ensemble"}, timeout=30)
+                                    params={**params_base, "models": "icon_ch2"}, timeout=30)
             if resp_ch2.status_code == 200:
                 dati_ch2 = resp_ch2.json()
                 if 'hourly' in dati_ch2:
@@ -199,6 +198,16 @@ def interpella_groq(report_tecnico, giorno_str):
         return f"Errore AI Groq: {e}"
 
 def main():
+    FILE_LOCK = "lock_temporali.txt"
+    oggi_str_lock = datetime.now().strftime("%Y-%m-%d")
+    
+    # CONTROLLO SEMAFORO: Se ha già inviato un'analisi oggi, si stoppa subito[cite: 3]
+    if os.path.exists(FILE_LOCK):
+        with open(FILE_LOCK, "r") as f:
+            if f.read().strip() == oggi_str_lock:
+                print("✅ Analisi temporali già inviata oggi. Esecuzione terminata per evitare spam.")
+                sys.exit(0)
+
     print("Analisi in corso: ricerca inneschi da scenari Ensemble D2/CH2...")
     finestre_attive = get_finestre_innesco_ensemble()
     
@@ -209,7 +218,9 @@ def main():
     print("Scaricamento profili termodinamici deterministici ICON-D2...")
     hourly = fetch_dati_convezione_d2()
     
-    messaggio_telegram = "🌩 **ANALISI SETUP CONVETTIVO CONDIZIONALE**\n\n"
+    # Usiamo il tag HTML <b> coerentemente con il prompt pulito di Groq
+    messaggio_telegram = "🌩 <b>ANALISI SETUP CONVETTIVO CONDIZIONALE</b>\n\n"
+    inviato_almeno_uno = False
 
     for data_str, indici_ore in finestre_attive.items():
         # Estraiamo i parametri medi nella finestra in cui è attesa la fenomenologia
@@ -265,9 +276,8 @@ def main():
         dls = magnitudo_shear(avg_u10, avg_v10, avg_u500, avg_v500)
         lls = magnitudo_shear(avg_u10, avg_v10, avg_u850, avg_v850)
         
-        # Calcolo Cloud Bearing Layer (Flusso medio tra 850 e 500 hPa)
         u_cbl = (avg_u850 + avg_u500) / 2
-        v_cbl = (avg_v850 + avg_v500) / 2
+        v_cbl = (avg_v850 + avg_u500) / 2
         traslazione_kmh, traslazione_dir = calcola_magnitudo_direzione(u_cbl, v_cbl)
 
         stima_g = stima_grandine_python(max_cape, dls, media_lr, media_zt)
@@ -289,22 +299,28 @@ def main():
         print(f"[{giorno_formattato}] Elaborazione responso diagnostico tramite Groq...")
         responso = interpella_groq(report_dati, giorno_formattato)
         
-        messaggio_telegram += f"📅 **Target: {giorno_formattato}**\n\n{responso}\n\n➖➖➖➖➖➖➖➖➖➖\n\n"
+        messaggio_telegram += f"📅 <b>Target: {giorno_formattato}</b>\n\n{responso}\n\n➖➖➖➖➖➖➖➖➖➖\n\n"
+        inviato_almeno_uno = True
 
-    # Invio Telegram
-    token = os.getenv("TELEGRAM_TOKEN")
-    chat_id = os.getenv("TELEGRAM_CHAT_ID")
-    
-    if token and chat_id:
-        res = requests.post(f"https://api.telegram.org/bot{token}/sendMessage", 
-                      data={"chat_id": chat_id, "text": messaggio_telegram, "parse_mode": "Markdown"})
-        if res.status_code == 200:
-            print("Analisi convettiva inviata con successo su Telegram!")
+    # Invio Telegram condizionato all'effettivo innesco di almeno un giorno valido[cite: 3]
+    if inviato_almeno_uno:
+        token = os.getenv("TELEGRAM_TOKEN")
+        chat_id = os.getenv("TELEGRAM_CHAT_ID")
+        
+        if token and chat_id:
+            res = requests.post(f"https://api.telegram.org/bot{token}/sendMessage", 
+                          data={"chat_id": chat_id, "text": messaggio_telegram, "parse_mode": "HTML"})
+            if res.status_code == 200:
+                print("Analisi convettiva inviata con successo su Telegram!")
+                # SCRITTURA DEL SEMAFORO: Salva lo sblocco avvenuto[cite: 3]
+                with open(FILE_LOCK, "w") as f:
+                    f.write(oggi_str_lock)
+            else:
+                print(f"Errore invio Telegram: {res.text}")
         else:
-            print(f"Errore invio Telegram: {res.text}")
+            print(messaggio_telegram)
     else:
-        print(messaggio_telegram)
-        print("\n⚠️ Telegram Token o Chat ID non configurati nell'ambiente locale.")
+        print("Scenari analizzati ma nessun setup ha superato la soglia di criticità termodinamica (Max CAPE < 200).")
 
 if __name__ == "__main__":
     main()
