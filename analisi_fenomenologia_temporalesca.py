@@ -298,7 +298,12 @@ def main():
         Modello matematico grandine: {stima_g}
         """
         
-        giorno_formattato = datetime.strptime(data_str, "%Y-%m-%d").strftime("%d/%m/%Y")
+        # Traduzione manuale e sicura della data in formato discorsivo italiano
+        dt_giorno = datetime.strptime(data_str, "%Y-%m-%d")
+        giorni_it = ["lunedì", "martedì", "mercoledì", "giovedì", "venerdì", "sabato", "domenica"]
+        mesi_it = ["", "gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno", "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre"]
+        
+        giorno_formattato = f"{giorni_it[dt_giorno.weekday()]} {dt_giorno.day} {mesi_it[dt_giorno.month]}"
         print(f"[{giorno_formattato}] Elaborazione responso diagnostico tramite Groq...")
         responso = interpella_groq(report_dati, giorno_formattato)
         
