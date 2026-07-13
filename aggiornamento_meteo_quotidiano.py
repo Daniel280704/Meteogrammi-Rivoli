@@ -22,18 +22,81 @@ def gradi_a_direzione(gradi):
     return dirs[int(round(gradi / 45.0)) % 8]
 
 def calcola_disagio_caldo(t_aria, dew_point):
-    if t_aria >= 36 or dew_point >= 24: return "(disagio estremo 🟣 - ELEVATO PERICOLO)"
-    elif t_aria >= 34 or dew_point >= 22: return "(disagio forte 🔴)"
-    elif t_aria >= 30 or dew_point >= 20: return "(disagio marcato 🟠)"
-    elif t_aria >= 27 or dew_point >= 18: return "(disagio lieve 🟡)"
-    return "(assenza di disagio 🟢)"
+    # =========================================================================
+    # 1. DISAGIO ESTREMO 🟣 (Condizioni torride/afose estreme, elevato pericolo)
+    # =========================================================================
+    if t_aria >= 40 and dew_point >= 15: return "(disagio estremo 🟣 - ELEVATO PERICOLO)"  # Caldo torrido nel deserto
+    elif t_aria >= 38 and dew_point >= 18: return "(disagio estremo 🟣 - ELEVATO PERICOLO)"
+    elif t_aria >= 36 and dew_point >= 20: return "(disagio estremo 🟣 - ELEVATO PERICOLO)"  # Afa intensa padana
+    elif t_aria >= 34 and dew_point >= 22: return "(disagio estremo 🟣 - ELEVATO PERICOLO)"
+    elif t_aria >= 32 and dew_point >= 24: return "(disagio estremo 🟣 - ELEVATO PERICOLO)"  # Clima tropicale opprimente
+    elif t_aria >= 30 and dew_point >= 25: return "(disagio estremo 🟣 - ELEVATO PERICOLO)"
+    elif t_aria >= 28 and dew_point >= 26: return "(disagio estremo 🟣 - ELEVATO PERICOLO)"
+
+    # =========================================================================
+    # 2. DISAGIO FORTE 🔴 (Afa molto pesante, limitare gli sforzi fisici)
+    # =========================================================================
+    elif t_aria >= 38 and dew_point >= 12: return "(disagio forte 🔴)"
+    elif t_aria >= 36 and dew_point >= 15: return "(disagio forte 🔴)"
+    elif t_aria >= 34 and dew_point >= 18: return "(disagio forte 🔴)"
+    elif t_aria >= 32 and dew_point >= 20: return "(disagio forte 🔴)"
+    elif t_aria >= 30 and dew_point >= 22: return "(disagio forte 🔴)"
+    elif t_aria >= 28 and dew_point >= 24: return "(disagio forte 🔴)"
+    elif t_aria >= 26 and dew_point >= 25: return "(disagio forte 🔴)"
+
+    # =========================================================================
+    # 3. DISAGIO MARCATO 🟠 (Sensazione netta di calura e compressione)
+    # =========================================================================
+    elif t_aria >= 36 and dew_point >= 10: return "(disagio marcato 🟠)"
+    elif t_aria >= 34 and dew_point >= 13: return "(disagio marcato 🟠)"
+    elif t_aria >= 32 and dew_point >= 16: return "(disagio marcato 🟠)"
+    elif t_aria >= 30 and dew_point >= 18: return "(disagio marcato 🟠)"
+    elif t_aria >= 28 and dew_point >= 20: return "(disagio marcato 🟠)"
+    elif t_aria >= 26 and dew_point >= 22: return "(disagio marcato 🟠)"
+    elif t_aria >= 24 and dew_point >= 24: return "(disagio marcato 🟠)"
+
+    # =========================================================================
+    # 4. DISAGIO LIEVE 🟡 (Primi segnali di fastidio da caldo umido)
+    # =========================================================================
+    elif t_aria >= 32 and dew_point >= 8: return "(disagio lieve 🟡)"
+    elif t_aria >= 30 and dew_point >= 11: return "(disagio lieve 🟡)"
+    elif t_aria >= 28 and dew_point >= 13: return "(disagio lieve 🟡)"
+    elif t_aria >= 26 and dew_point >= 15: return "(disagio lieve 🟡)"
+    elif t_aria >= 24 and dew_point >= 17: return "(disagio lieve 🟡)"
+    elif t_aria >= 22 and dew_point >= 19: return "(disagio lieve 🟡)"
+
+    # =========================================================================
+    # COMFORT O CALDO SOPPORTABILE 🟢
+    # =========================================================================
+    else:
+        return "(nessun disagio o caldo tollerabile)"
 
 def calcola_disagio_freddo(windchill):
-    if windchill < -10: return "(disagio estremo da freddo 🥶)"
-    elif windchill < -5: return "(disagio forte da freddo 🔵)"
-    elif windchill < 0: return "(disagio marcato da freddo 🧊)"
-    elif windchill < 5: return "(disagio lieve da freddo ❄️)"
-    return "(assenza di disagio 🟢)"
+    # =========================================================================
+    # 1. DISAGIO ESTREMO (Pericolo immediato di congelamento della pelle esposta in meno di 10 minuti)
+    # =========================================================================
+    if windchill < -40: return "(disagio estremo da freddo 🥶)"
+    
+    # =========================================================================
+    # 2. DISAGIO FORTE (Rischio elevato di congelamento in 10-30 minuti, brividi violenti)
+    # =========================================================================
+    elif windchill < -25: return "(disagio forte da freddo 🥶)"
+    
+    # =========================================================================
+    # 3. DISAGIO MARCATO (Freddo intenso, forte fastidio e necessità di coprirsi molto bene)
+    # =========================================================================
+    elif windchill < -10: return "(disagio marcato da freddo 🥶)"
+    
+    # =========================================================================
+    # 4. DISAGIO LIEVE (Primi segnali di fastidio pungente, specialmente sulle estremità)
+    # =========================================================================
+    elif windchill < 0: return "(disagio lieve da freddo 🥶)"
+    
+    # =========================================================================
+    # COMFORT O FREDDO SOPPORTABILE
+    # =========================================================================
+    else:
+        return "(nessun disagio o freddo tollerabile)"
 
 def media_lista(lista):
     valori_validi = [v for v in lista if v is not None]
