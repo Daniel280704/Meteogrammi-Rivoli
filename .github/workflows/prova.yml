@@ -1,0 +1,48 @@
+name: Aggiornamento meteo quotidiano e a medio termine
+
+on:
+  schedule:
+    # Attenzione: GitHub Action lavora sul fuso orario UTC. 
+    # 1, 2, 3, 4, 5, 6 UTC corrispondono a 03:39, 04:39, 05:39, 06:39, 07:39 e 08:39 ora italiana (CEST).
+    - cron: '39 1,2,3,4,5,6 * * *'
+  workflow_dispatch: # Permette di avviarlo manualmente dal sito se necessario
+
+jobs:
+  run-bollettini:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # FONDAMENTALE: Serve per poter fare il commit dei file semaforo (.txt)
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: pip install requests google-generativeai
+
+      - name: Esegui Aggiornamento Quotidiano
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python aggiornamento_quotidiano.py
+
+      - name: Esegui Aggiornamento Medio Termine
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python aggiornamento_medio_termine.py
+
+      - name: Salva i file semaforo (Commit & Push)
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          git add lock_quotidiano.txt lock_medio_termine.txt || true
+          git commit -m "Aggiornamento semafori bollettini [skip ci]" || echo "Nessun aggiornamento semafori da committare"
+          git push
