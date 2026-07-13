@@ -116,6 +116,7 @@ def interpella_gemini(dati_testuali, oggi_str, domani_str):
     7. TERMINOLOGIA CIELO: Quando descrivi la nuvolosità, DEVI integrare nel testo ESATTAMENTE le stesse diciture fornite dai dati in minuscolo.
     8. PROBABILISMO SULLE PRECIPITAZIONI ESTIVE: In caso di instabilità, usa un tono probabilistico (es. "un aumento dell'instabilità con possibili rovesci (60%)"). Se ci sono più orari instabili, prendi la percentuale più alta e ignora gli altri.
     9. GESTIONE MALTEMPO INVERNALE/AUTUNNALE: Se nei dati trovi "Perturbazione in transito", NON usare la parola "instabilità" o le percentuali. Invece, aggrega le fasce orarie indicando quando piove/nevica, l'intensità media (debole, moderata, forte) e individua SEMPRE l'orario del picco massimo e quanti mm/h sono previsti, citandoli nel testo.
+    10. DIVIETO ASSOLUTO DI FORMATTAZIONE (IMPORTANTE): Tranne che per il titolo iniziale (che deve avere i **), NON usare MAI altri asterischi (* o **), trattini bassi (_), o elenchi puntati nel resto del bollettino. Scrivi solo testo pulito per evitare crash su Telegram.
     
     ESEMPIO DI STILE ESTIVO DA IMITARE:
     "La giornata di domenica si apre con stabilità atmosferica. Le minime si assestano sui 19°C. Durante le ore di luce il cielo si manterrà in prevalenza sereno, portando la massima a 33°C (disagio marcato 🟠). Nel tardo pomeriggio si segnala un aumento dell'instabilità con possibili rovesci o temporali (40%). In serata situazione in miglioramento."
@@ -345,7 +346,6 @@ def main():
         silenzia_vento = (estate and instabilita != "assente")
         
         if not silenzia_vento:
-            # Determinazione scala vento base
             if w_gst_media >= 75 or w_spd_media >= 40: int_vento = "tempestosa"
             elif w_gst_media >= 55 or w_spd_media >= 30: int_vento = "forte"
             elif w_gst_media >= 40 or w_spd_media >= 20: int_vento = "modesta"
@@ -357,7 +357,6 @@ def main():
                 crollo_dew = (dew_point_prev - dew_media) >= 5
                 aumento_ur = (ur_media - ur_prev) >= 5
                 
-                # Filtro anti-rumore
                 if aumento_spd < 5 and w_gst_media < 30:
                     pass 
                 else:
@@ -371,7 +370,6 @@ def main():
                     else:
                         vento_evento = f"ventilazione {int_vento}"
             else:
-                # Caso primissima ora
                 if w_gst_media >= 30 or w_spd_media >= 15:
                     vento_evento = f"ventilazione {int_vento}"
                             
