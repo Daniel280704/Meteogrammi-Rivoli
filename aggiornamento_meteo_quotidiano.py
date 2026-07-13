@@ -83,6 +83,11 @@ def media_lista(lista):
     if not valori_validi: return 0
     return int(round(sum(valori_validi) / len(valori_validi)))
 
+def media_lista_float(lista):
+    valori_validi = [v for v in lista if v is not None]
+    if not valori_validi: return 0.0
+    return round(sum(valori_validi) / len(valori_validi), 1)
+
 def conta_superamenti(lista, soglia):
     valori_validi = [v for v in lista if v is not None]
     if not valori_validi: return 0
@@ -105,16 +110,19 @@ def interpella_gemini(dati_testuali, oggi_str, domani_str):
     1. TITOLO: Inizia ESATTAMENTE con: **Aggiornamento meteo di {oggi_str}**
     2. STRUTTURA: Scrivi esattamente due paragrafi: il primo per la giornata odierna, il secondo per domani.
     3. DIVIETO ASSOLUTO DI ELENCARE GLI ORARI: NON elencare MAI le temperature ora per ora.
-    4. SINTESI DISCORSIVA: Sintetizza l'evoluzione usando fasi del giorno ("in mattinata", "nelle ore centrali", "nel pomeriggio", "in serata"). Usa la cronistoria fornita solo per capire l'andamento del cielo e dei fenomeni meteo, ma raccontali in modo narrativo.
+    4. SINTESI DISCORSIVA: Sintetizza l'evoluzione usando fasi del giorno ("in mattinata", "nelle ore centrali", "nel pomeriggio", "in serata").
     5. TEMPERATURE DA CITARE: Cita solo la temperatura minima e la temperatura massima prevista.
-    6. DISAGIO TERMICO: Quando citi la temperatura massima, affianca ESATTAMENTE la dicitura sul disagio che trovi nei dati.
-    7. TERMINOLOGIA CIELO: Quando descrivi la nuvolosità, DEVI integrare nel testo ESATTAMENTE le stesse diciture fornite dai dati. Evita sinonimi liberi.
-    8. PROBABILISMO SULLE PRECIPITAZIONI: Non dare mai i fenomeni precipitativi per certi. Usa sempre un tono probabilistico e riporta la percentuale indicata nei dati (es. "possibile instabilità (60%) con rischio di rovesci").
-    9. FILTRO INSTABILITÀ: Se all'interno della stessa giornata ci sono più orari con "possibile instabilità", individua quello con la percentuale di probabilità più alta e descrivi ESCLUSIVAMENTE quello nel bollettino. Ignora e non menzionare in alcun modo gli altri momenti di instabilità della stessa giornata.
+    6. DISAGIO TERMICO: Quando citi la temperatura massima, affianca ESATTAMENTE la dicitura sul disagio fornita nei dati.
+    7. TERMINOLOGIA CIELO: Quando descrivi la nuvolosità, DEVI integrare nel testo ESATTAMENTE le stesse diciture fornite dai dati in minuscolo.
+    8. PROBABILISMO SULLE PRECIPITAZIONI ESTIVE: In caso di instabilità, usa un tono probabilistico (es. "un aumento dell'instabilità con possibili rovesci (60%)"). Se ci sono più orari instabili, prendi la percentuale più alta e ignora gli altri.
+    9. GESTIONE MALTEMPO INVERNALE/AUTUNNALE: Se nei dati trovi "Perturbazione in transito", NON usare la parola "instabilità" o le percentuali. Invece, aggrega le fasce orarie indicando quando piove/nevica, l'intensità media (debole, moderata, forte) e individua SEMPRE l'orario del picco massimo e quanti mm/h sono previsti, citandoli nel testo.
     
-    ESEMPIO DI STILE DA IMITARE ALLA PERFEZIONE:
-    "La giornata di domenica si apre con condizioni di stabilità atmosferica. Le temperature minime si assestano sui 19°C. Durante le ore di luce il cielo si manterrà in prevalenza sereno, favorendo un ampio soleggiamento che porterà la massima a 33°C (disagio marcato 🟠). Nel tardo pomeriggio si segnala una possibile instabilità (40%) con rischio di rovesci. In serata la situazione volgerà al miglioramento."
+    ESEMPIO DI STILE ESTIVO DA IMITARE:
+    "La giornata di domenica si apre con stabilità atmosferica. Le minime si assestano sui 19°C. Durante le ore di luce il cielo si manterrà in prevalenza sereno, portando la massima a 33°C (disagio marcato 🟠). Nel tardo pomeriggio si segnala un aumento dell'instabilità con possibili rovesci o temporali (40%). In serata situazione in miglioramento."
     
+    ESEMPIO DI STILE INVERNALE DA IMITARE:
+    "La giornata odierna vedrà un progressivo peggioramento. Le temperature oscilleranno tra una minima di 4°C e una massima di 8°C (nessun disagio). Dal pomeriggio è atteso il transito di una perturbazione con piogge deboli, che si intensificheranno in serata divenendo moderate. Il picco massimo delle precipitazioni è atteso intorno alle 21:00 con circa 4.5 mm/h. La ventilazione si manterrà modesta umida orientale."
+
     DATI GIORNALIERI DA TRASFORMARE IN TESTO:
     {dati_testuali}
     """
@@ -126,8 +134,8 @@ def interpella_gemini(dati_testuali, oggi_str, domani_str):
 
 def main():
     mese_corrente = datetime.now().month
-    inverno = mese_corrente in [11, 12, 1, 2, 3, 4]
-    estate = mese_corrente in [5, 6, 7, 8, 9, 10]
+    inverno = mese_corrente in [10, 11, 12, 1, 2, 3, 4]
+    estate = mese_corrente in [5, 6, 7, 8, 9]
     
     FILE_LOCK = "lock_quotidiano.txt"
     oggi_str_lock = datetime.now().strftime("%Y-%m-%d")
@@ -224,9 +232,9 @@ def main():
     t_min_domani, t_max_domani = 100, -100
     apparent_temperatures_medie = []
     
-    # Variabili per tracciare le variazioni orarie
     dew_point_prev = None
     w_gst_prev = None
+    w_spd_prev = None
     ur_prev = None
 
     for i in range(len(orari)):
@@ -258,6 +266,7 @@ def main():
         
         prec_eps_d2_membri = [h_eps_d2[k][i] for k in h_eps_d2 if k.startswith('precipitation_member')]
         prec_eps_ch2_membri = [h_eps_ch2[k][i] for k in h_eps_ch2 if k.startswith('precipitation_member')] if ch2_disponibile else []
+        prec_media_d2 = media_lista_float(prec_eps_d2_membri)
         
         pct_d2_1mm = percentuale_superamento(prec_eps_d2_membri, 1.0)
         pct_d2_3mm = percentuale_superamento(prec_eps_d2_membri, 3.0)
@@ -265,101 +274,110 @@ def main():
         num_d2_1mm = conta_superamenti(prec_eps_d2_membri, 1.0)
         
         instabilita = "assente"
+        perturbazione = False
         probabilita = 0
 
-        if ch2_disponibile:
-            pct_ch2_1mm = percentuale_superamento(prec_eps_ch2_membri, 1.0)
-            pct_ch2_3mm = percentuale_superamento(prec_eps_ch2_membri, 3.0)
-            pct_ch2_5mm = percentuale_superamento(prec_eps_ch2_membri, 5.0)
-            num_ch2_1mm = conta_superamenti(prec_eps_ch2_membri, 1.0)
-            
-            if num_d2_1mm >= 2 and num_ch2_1mm >= 2:
-                instabilita = "possibile instabilità"
-                if pct_d2_5mm >= 75 and pct_ch2_5mm >= 75: probabilita = 95
-                elif pct_d2_5mm >= 50 and pct_ch2_5mm >= 50: probabilita = 80
-                elif pct_d2_5mm >= 25 and pct_ch2_5mm >= 25: probabilita = 70
-                elif pct_d2_3mm >= 50 and pct_ch2_3mm >= 50: probabilita = 60
-                elif pct_d2_3mm >= 25 and pct_ch2_3mm >= 25: probabilita = 50
-                elif pct_d2_1mm >= 50 and pct_ch2_1mm >= 50: probabilita = 40
-                elif pct_d2_1mm >= 25 and pct_ch2_1mm >= 25: probabilita = 30
-                else: probabilita = 15
-        else:
-            if num_d2_1mm >= 3:
-                instabilita = "possibile instabilità"
-                if pct_d2_5mm >= 75: probabilita = 95
-                elif pct_d2_5mm >= 50: probabilita = 80
-                elif pct_d2_5mm >= 25: probabilita = 70
-                elif pct_d2_3mm >= 50: probabilita = 60
-                elif pct_d2_3mm >= 25: probabilita = 50
-                elif pct_d2_1mm >= 50: probabilita = 40
-                elif pct_d2_1mm >= 25: probabilita = 30
-                else: probabilita = 15
+        if estate:
+            if ch2_disponibile:
+                pct_ch2_1mm = percentuale_superamento(prec_eps_ch2_membri, 1.0)
+                pct_ch2_3mm = percentuale_superamento(prec_eps_ch2_membri, 3.0)
+                pct_ch2_5mm = percentuale_superamento(prec_eps_ch2_membri, 5.0)
+                num_ch2_1mm = conta_superamenti(prec_eps_ch2_membri, 1.0)
+                if num_d2_1mm >= 2 and num_ch2_1mm >= 2:
+                    instabilita = "un aumento dell'instabilità"
+                    if pct_d2_5mm >= 75 and pct_ch2_5mm >= 75: probabilita = 95
+                    elif pct_d2_5mm >= 50 and pct_ch2_5mm >= 50: probabilita = 80
+                    elif pct_d2_5mm >= 25 and pct_ch2_5mm >= 25: probabilita = 70
+                    elif pct_d2_3mm >= 50 and pct_ch2_3mm >= 50: probabilita = 60
+                    elif pct_d2_3mm >= 25 and pct_ch2_3mm >= 25: probabilita = 50
+                    elif pct_d2_1mm >= 50 and pct_ch2_1mm >= 50: probabilita = 40
+                    elif pct_d2_1mm >= 25 and pct_ch2_1mm >= 25: probabilita = 30
+                    else: probabilita = 15
+            else:
+                if num_d2_1mm >= 3:
+                    instabilita = "un aumento dell'instabilità"
+                    if pct_d2_5mm >= 75: probabilita = 95
+                    elif pct_d2_5mm >= 50: probabilita = 80
+                    elif pct_d2_5mm >= 25: probabilita = 70
+                    elif pct_d2_3mm >= 50: probabilita = 60
+                    elif pct_d2_3mm >= 25: probabilita = 50
+                    elif pct_d2_1mm >= 50: probabilita = 40
+                    elif pct_d2_1mm >= 25: probabilita = 30
+                    else: probabilita = 15
+        elif inverno:
+            if ch2_disponibile:
+                pct_ch2_1mm = percentuale_superamento(prec_eps_ch2_membri, 1.0)
+                if pct_d2_1mm >= 50 and pct_ch2_1mm >= 50:
+                    perturbazione = True
+            else:
+                if pct_d2_1mm >= 75:
+                    perturbazione = True
 
         tipo_prec = ""
-        if instabilita != "assente":
-            if inverno:
-                if t_media < 2:
-                    strati_quota = [
-                        h_det.get('temperature_1000hPa', [])[i], h_det.get('temperature_975hPa', [])[i],
-                        h_det.get('temperature_950hPa', [])[i], h_det.get('temperature_925hPa', [])[i],
-                        h_det.get('temperature_900hPa', [])[i], h_det.get('temperature_850hPa', [])[i],
-                        h_det.get('temperature_800hPa', [])[i]
-                    ]
-                    inversione_presente = any(t > 1 for t in strati_quota if t is not None)
-                    if inversione_presente:
-                        if t_media > 0: tipo_prec = "pioggia (a causa di inversione termica in quota)"
-                        else: tipo_prec = "PERICOLO PIOGGIA CONGELANTE (Gelicidio per inversione termica)"
-                    else: tipo_prec = "neve"
-                else: tipo_prec = "pioggia"
-            else:
-                cape = h_det.get('cape', [])[i] if h_det.get('cape') else 0
-                if cape > 400: tipo_prec = "temporale"
-                else: tipo_prec = "rovesci"
-
-        desc_raffiche = ""
-        if w_gst_media > 80: desc_raffiche = "tempestose"
-        elif w_gst_media > 55: desc_raffiche = "forti"
-        elif w_gst_media > 35: desc_raffiche = "moderate"
-        elif w_gst_media >= 25: desc_raffiche = "deboli"
+        int_prec = ""
+        
+        if estate and instabilita != "assente":
+            cape = h_det.get('cape', [])[i] if i < len(h_det.get('cape', [])) else 0
+            if cape is None: cape = 0
+            if cape > 200: tipo_prec = "rovesci o temporali"
+            else: tipo_prec = "rovesci"
+            
+        elif inverno and perturbazione:
+            if prec_media_d2 > 5: int_prec = "forti"
+            elif prec_media_d2 >= 2: int_prec = "moderate"
+            else: int_prec = "deboli"
+            
+            if t_media < 2:
+                strati_quota = [
+                    h_det.get('temperature_1000hPa', [])[i], h_det.get('temperature_975hPa', [])[i],
+                    h_det.get('temperature_950hPa', [])[i], h_det.get('temperature_925hPa', [])[i],
+                    h_det.get('temperature_900hPa', [])[i], h_det.get('temperature_850hPa', [])[i],
+                    h_det.get('temperature_800hPa', [])[i]
+                ]
+                inversione_presente = any(t > 1 for t in strati_quota if t is not None)
+                if inversione_presente:
+                    if t_media > 0: tipo_prec = "piogge (per inversione termica in quota)"
+                    else: tipo_prec = "PERICOLO PIOGGIA CONGELANTE (Gelicidio)"
+                else: tipo_prec = "neve"
+            else: tipo_prec = "piogge"
 
         vento_evento = ""
+        silenzia_vento = (estate and instabilita != "assente")
         
-        # Logica del vento: non menzionato in caso di instabilità
-        if instabilita == "assente":
-            if dew_point_prev is not None and w_gst_prev is not None and ur_prev is not None:
+        if not silenzia_vento:
+            # Determinazione scala vento base
+            if w_gst_media >= 75 or w_spd_media >= 40: int_vento = "tempestosa"
+            elif w_gst_media >= 55 or w_spd_media >= 30: int_vento = "forte"
+            elif w_gst_media >= 40 or w_spd_media >= 20: int_vento = "modesta"
+            else: int_vento = "blanda"
+
+            if dew_point_prev is not None and w_gst_prev is not None and ur_prev is not None and w_spd_prev is not None:
+                aumento_spd = w_spd_media - w_spd_prev
                 aumento_vento = (w_gst_media - w_gst_prev) >= 20
                 crollo_dew = (dew_point_prev - dew_media) >= 5
                 aumento_ur = (ur_media - ur_prev) >= 5
                 
-                is_fohn = w_dir_str in ['NW', 'N', 'W'] and aumento_vento and crollo_dew
-                is_oriente = w_dir_str in ['E', 'NE', 'SE'] and aumento_ur
-                
-                if is_fohn:
-                    vento_evento = "improvviso rinforzo per probabile Föhn"
-                elif is_oriente:
-                    vento_evento = "ventilazione umida orientale"
-                elif w_gst_media >= 25 or w_spd_media >= 15:
-                    if estate:
-                        vento_evento = f"rinforzi della ventilazione dovuti al probabile transito di temporali nelle vicinanze"
+                # Filtro anti-rumore
+                if aumento_spd < 5 and w_gst_media < 30:
+                    pass 
+                else:
+                    is_fohn = w_dir_str in ['NW', 'N', 'W'] and aumento_vento and crollo_dew
+                    is_oriente = w_dir_str in ['E', 'NE', 'SE'] and aumento_ur
+                    
+                    if is_fohn:
+                        vento_evento = f"ventilazione {int_vento} da probabile Föhn"
+                    elif is_oriente:
+                        vento_evento = f"ventilazione {int_vento} umida orientale"
                     else:
-                        if desc_raffiche:
-                            vento_evento = f"rischio di {desc_raffiche} raffiche di vento"
-                        else:
-                            vento_evento = "rinforzo della ventilazione"
+                        vento_evento = f"ventilazione {int_vento}"
             else:
-                # Caso primissima ora (senza delta precedenti)
-                if w_gst_media >= 25 or w_spd_media >= 15:
-                    if estate:
-                        vento_evento = f"rinforzi della ventilazione dovuti al probabile transito di temporali nelle vicinanze"
-                    else:
-                        if desc_raffiche:
-                            vento_evento = f"rischio di {desc_raffiche} raffiche di vento"
-                        else:
-                            vento_evento = "rinforzo della ventilazione"
+                # Caso primissima ora
+                if w_gst_media >= 30 or w_spd_media >= 15:
+                    vento_evento = f"ventilazione {int_vento}"
                             
-        # Aggiornamento valori precedenti per l'ora successiva
         dew_point_prev = dew_media
         w_gst_prev = w_gst_media
+        w_spd_prev = w_spd_media
         ur_prev = ur_media
 
         alba = datetime.fromisoformat(sunrise_str[giorno_idx])
@@ -393,11 +411,15 @@ def main():
             t_max_domani = max(t_max_domani, t_media)
 
         record = f"Ore {ora_solare}: T={t_media}°C."
-        if cielo: record += f" Cielo {cielo}."
+        if cielo: record += f" cielo {cielo}."
         
-        if instabilita != "assente":
-            str_instabilita = f"{instabilita} ({probabilita}%)"
-            record += f" Si segnala {str_instabilita} con possibilità di {tipo_prec}."
+        if estate and instabilita != "assente":
+            if tipo_prec in ["rovesci", "rovesci o temporali"]:
+                record += f" Si segnala {instabilita} con possibili {tipo_prec} ({probabilita}%)."
+            else:
+                record += f" Si segnala {instabilita} con rischio di {tipo_prec} ({probabilita}%)."
+        elif inverno and perturbazione:
+            record += f" Perturbazione in transito con {tipo_prec} {int_prec} (media {prec_media_d2} mm/h)."
                 
         if vento_evento: record += f" {vento_evento}."
         if nebbia: record += f" {nebbia}."
