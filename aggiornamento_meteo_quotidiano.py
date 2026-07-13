@@ -146,7 +146,7 @@ def interpella_gemini(dati_testuali, oggi_str, domani_str):
 
 def main():
     mese_corrente = datetime.now().month
-    inverno = mese_corrente in [11, 12, 1, 2, 3]
+    inverno = mese_corrente in [11, 12, 1, 2, 3, 4]
     estate = mese_corrente in [5, 6, 7, 8, 9, 10]
     
     # --- BLOCCO SEMAFORO: CONTROLLO INIZIALE ---
@@ -240,6 +240,7 @@ def main():
     sintesi_domani = []
     t_min_oggi, t_max_oggi = 100, -100
     t_min_domani, t_max_domani = 100, -100
+    apparent_temperatures_medie = []
     dew_point_prev = None
 
     for i in range(len(orari)):
@@ -252,6 +253,10 @@ def main():
         
         dew_membri = [h_eps_d2[k][i] for k in h_eps_d2 if k.startswith('dew_point_2m_member')]
         dew_media = media_lista(dew_membri)
+
+        app_membri = [h_eps_d2[k][i] for k in h_eps_d2 if k.startswith('apparent_temperature_member')]
+        app_media = media_lista(app_membri)
+        apparent_temperatures_medie.append(app_media)
         
         ur_membri = [h_eps_d2[k][i] for k in h_eps_d2 if k.startswith('relative_humidity_2m_member')]
         ur_media = media_lista(ur_membri)
@@ -418,8 +423,8 @@ def main():
         disagio_oggi = calcola_disagio_caldo(t_max_oggi, dew_max_oggi)
         disagio_domani = calcola_disagio_caldo(t_max_domani, dew_max_domani)
     elif inverno:
-        windchill_min_oggi = min(h_eps_d2.get('apparent_temperature', [])[0:24])
-        windchill_min_domani = min(h_eps_d2.get('apparent_temperature', [])[24:48])
+        windchill_min_oggi = min(apparent_temperatures_medie[0:24])
+        windchill_min_domani = min(apparent_temperatures_medie[24:48])
         disagio_oggi = calcola_disagio_freddo(windchill_min_oggi)
         disagio_domani = calcola_disagio_freddo(windchill_min_domani)
 
