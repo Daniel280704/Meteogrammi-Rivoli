@@ -393,12 +393,18 @@ def main():
                 crollo_dew = (dew_point_prev - dew_media) >= 5
                 aumento_ur = (ur_media - ur_prev) >= 5
                 
-                if is_fohn and int_vento != "blanda":
-                    vento_evento = f"ventilazione {int_vento} da probabile Föhn"
-                elif is_oriente and int_vento != "blanda":
-                    vento_evento = f"ventilazione {int_vento} umida orientale"
-                elif int_vento != "blanda":
-                    vento_evento = f"ventilazione {int_vento}"
+                if aumento_spd < 5 and w_gst_media < 30:
+                    pass 
+                else:
+                    is_fohn = w_dir_str in ['NW', 'N', 'W'] and aumento_vento and crollo_dew
+                    is_oriente = w_dir_str in ['E', 'NE', 'SE'] and aumento_ur
+                    
+                    if is_fohn and int_vento != "blanda":
+                        vento_evento = f"ventilazione {int_vento} da probabile Föhn"
+                    elif is_oriente and int_vento != "blanda":
+                        vento_evento = f"ventilazione {int_vento} umida orientale"
+                    elif int_vento != "blanda":
+                        vento_evento = f"ventilazione {int_vento}"
             else:
                 if int_vento != "blanda":
                     vento_evento = f"ventilazione {int_vento}"
