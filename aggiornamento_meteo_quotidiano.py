@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import os
+import sys
 import requests
 from datetime import datetime, timedelta
 
@@ -19,13 +20,6 @@ def gradi_a_direzione(gradi):
     if gradi is None: return "N/A"
     dirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW', 'N']
     return dirs[int(round(gradi / 45.0)) % 8]
-
-def descrivi_velocita_vento(kmh):
-    if kmh < 5: return "bava di vento / assente"
-    elif kmh < 12: return "vento debole"
-    elif kmh < 28: return "vento moderato"
-    elif kmh < 49: return "vento forte"
-    else: return "vento burrascoso"
 
 def calcola_disagio_caldo(t_aria, dew_point):
     if t_aria >= 36 or dew_point >= 24: return "(disagio estremo 🟣 - ELEVATO PERICOLO)"
@@ -72,10 +66,11 @@ def interpella_gemini(dati_testuali, oggi_str, domani_str):
     5. TEMPERATURE DA CITARE: Cita solo la temperatura minima e la temperatura massima prevista.
     6. DISAGIO TERMICO: Quando citi la temperatura massima, affianca ESATTAMENTE la dicitura sul disagio che trovi nei dati.
     7. TERMINOLOGIA CIELO: Quando descrivi la nuvolosità, DEVI integrare nel testo ESATTAMENTE le stesse diciture fornite dai dati. Evita sinonimi liberi.
-    8. PROBABILISMO SULLE PRECIPITAZIONI: Non dare mai i fenomeni precipitativi per certi. Usa sempre un tono probabilistico e il condizionale (es. "possibilità di rovesci", "rischio di temporali", "potrebbe verificarsi (da confermare)").
+    8. PROBABILISMO SULLE PRECIPITAZIONI: Non dare mai i fenomeni precipitativi per certi. Usa sempre un tono probabilistico e riporta la percentuale indicata nei dati (es. "possibile instabilità (60%) con rischio di rovesci").
+    9. FILTRO INSTABILITÀ: Se all'interno della stessa giornata ci sono più orari con "possibile instabilità", individua quello con la percentuale di probabilità più alta e descrivi ESCLUSIVAMENTE quello nel bollettino. Ignora e non menzionare in alcun modo gli altri momenti di instabilità della stessa giornata.
     
     ESEMPIO DI STILE DA IMITARE ALLA PERFEZIONE:
-    "La giornata di domenica si apre con condizioni di stabilità atmosferica. Le temperature minime si assestano sui 19°C. Durante le ore di luce il cielo si manterrà in prevalenza sereno, favorendo un ampio soleggiamento che porterà la massima a 33°C (disagio marcato 🟠). Nel tardo pomeriggio si segnala una possibile instabilità con rischio di rovesci (da confermare), ma in serata la situazione volgerà al miglioramento."
+    "La giornata di domenica si apre con condizioni di stabilità atmosferica. Le temperature minime si assestano sui 19°C. Durante le ore di luce il cielo si manterrà in prevalenza sereno, favorendo un ampio soleggiamento che porterà la massima a 33°C (disagio marcato 🟠). Nel tardo pomeriggio si segnala una possibile instabilità (40%) con rischio di rovesci. In serata la situazione volgerà al miglioramento."
     
     DATI GIORNALIERI DA TRASFORMARE IN TESTO:
     {dati_testuali}
@@ -90,6 +85,17 @@ def main():
     mese_corrente = datetime.now().month
     inverno = mese_corrente in [11, 12, 1, 2, 3]
     estate = mese_corrente in [5, 6, 7, 8, 9, 10]
+    
+    # --- BLOCCO SEMAFORO: CONTROLLO INIZIALE ---
+    FILE_LOCK = "lock_quotidiano.txt"
+    oggi_str_lock = datetime.now().strftime("%Y-%m-%d")
+    
+    if os.path.exists(FILE_LOCK):
+        with open(FILE_LOCK, "r") as f:
+            if f.read().strip() == oggi_str_lock:
+                print("✅ Bollettino quotidiano già inviato oggi. Esecuzione terminata.")
+                sys.exit(0)
+    # -------------------------------------------
     
     try:
         dati_det = requests.get("https://api.open-meteo.com/v1/forecast", params={
@@ -199,30 +205,57 @@ def main():
         prec_eps_d2_membri = [h_eps_d2[k][i] for k in h_eps_d2 if k.startswith('precipitation_member')]
         prec_eps_ch2_membri = [h_eps_ch2[k][i] for k in h_eps_ch2 if k.startswith('precipitation_member')] if ch2_disponibile else []
         
+        pct_d2_1mm = percentuale_superamento(prec_eps_d2_membri, 1.0)
         pct_d2_3mm = percentuale_superamento(prec_eps_d2_membri, 3.0)
         pct_d2_5mm = percentuale_superamento(prec_eps_d2_membri, 5.0)
         num_d2_1mm = conta_superamenti(prec_eps_d2_membri, 1.0)
         
         instabilita = "assente"
+        probabilita = 0
 
         if ch2_disponibile:
+            pct_ch2_1mm = percentuale_superamento(prec_eps_ch2_membri, 1.0)
             pct_ch2_3mm = percentuale_superamento(prec_eps_ch2_membri, 3.0)
             pct_ch2_5mm = percentuale_superamento(prec_eps_ch2_membri, 5.0)
             num_ch2_1mm = conta_superamenti(prec_eps_ch2_membri, 1.0)
             
-            if (pct_d2_5mm >= 10) or (pct_ch2_5mm >= 10):
-                instabilita = "spiccata instabilità"
-            elif ((pct_d2_3mm >= 10) and (num_ch2_1mm > 0)) or ((pct_ch2_3mm >= 10) and (num_d2_1mm > 0)):
-                instabilita = "marcata instabilità"
-            elif (num_d2_1mm >= 1) and (num_ch2_1mm >= 1):
+            if num_d2_1mm >= 2 and num_ch2_1mm >= 2:
                 instabilita = "possibile instabilità"
+                if pct_d2_5mm >= 75 and pct_ch2_5mm >= 75:
+                    probabilita = 95
+                elif pct_d2_5mm >= 50 and pct_ch2_5mm >= 50:
+                    probabilita = 80
+                elif pct_d2_5mm >= 25 and pct_ch2_5mm >= 25:
+                    probabilita = 70
+                elif pct_d2_3mm >= 50 and pct_ch2_3mm >= 50:
+                    probabilita = 60
+                elif pct_d2_3mm >= 25 and pct_ch2_3mm >= 25:
+                    probabilita = 50
+                elif pct_d2_1mm >= 50 and pct_ch2_1mm >= 50:
+                    probabilita = 40
+                elif pct_d2_1mm >= 25 and pct_ch2_1mm >= 25:
+                    probabilita = 30
+                else:
+                    probabilita = 15
         else:
-            if pct_d2_5mm >= 10:      
-                instabilita = "spiccata instabilità"
-            elif pct_d2_3mm >= 15:    
-                instabilita = "marcata instabilità"
-            elif num_d2_1mm >= 2:    
+            if num_d2_1mm >= 3:
                 instabilita = "possibile instabilità"
+                if pct_d2_5mm >= 75:
+                    probabilita = 95
+                elif pct_d2_5mm >= 50:
+                    probabilita = 80
+                elif pct_d2_5mm >= 25:
+                    probabilita = 70
+                elif pct_d2_3mm >= 50:
+                    probabilita = 60
+                elif pct_d2_3mm >= 25:
+                    probabilita = 50
+                elif pct_d2_1mm >= 50:
+                    probabilita = 40
+                elif pct_d2_1mm >= 25:
+                    probabilita = 30
+                else:
+                    probabilita = 15
 
         tipo_prec = ""
         if instabilita != "assente":
@@ -245,8 +278,14 @@ def main():
                 if cape > 400: tipo_prec = "temporale"
                 else: tipo_prec = "rovesci"
 
+        desc_raffiche = ""
+        if w_gst_media > 80: desc_raffiche = "tempestose"
+        elif w_gst_media > 55: desc_raffiche = "forti"
+        elif w_gst_media > 35: desc_raffiche = "moderate"
+        elif w_gst_media >= 25: desc_raffiche = "deboli"
+
         vento_evento = ""
-        if w_spd_media >= 15 or w_gst_media > 30:
+        if w_spd_media >= 15 or w_gst_media >= 25:
             if dew_point_prev is not None:
                 crollo_dew = dew_point_prev - dew_media >= 2
                 if w_dir_str in ['NW', 'N', 'W'] and w_gst_media > 25 and crollo_dew:
@@ -254,8 +293,8 @@ def main():
                 elif w_dir_str in ['E', 'NE', 'SE'] and w_gst_media > 20 and not crollo_dew:
                     vento_evento = "ventilazione umida orientale"
             
-            if not inverno and w_gst_media > 30:
-                vento_evento = "rischio di raffiche di vento improvvise"
+            if not vento_evento and not inverno and desc_raffiche:
+                vento_evento = f"rischio di {desc_raffiche} raffiche di vento improvvise"
                     
             if not vento_evento and w_spd_media >= 15:
                 vento_evento = "rinforzo della ventilazione"
@@ -296,11 +335,10 @@ def main():
         if cielo: record += f" Cielo {cielo}."
         
         if instabilita != "assente":
-            if vento_evento == "rischio di raffiche di vento improvvise":
-                record += f" Si segnala {instabilita} con possibilità di {tipo_prec} (da confermare), con annesso rischio di raffiche di vento improvvise."
-                vento_evento = "" # Azzerato per non ripeterlo
-            else:
-                record += f" Si segnala {instabilita} con possibilità di {tipo_prec} (da confermare)."
+            str_instabilita = f"{instabilita} ({probabilita}%)"
+            record += f" Si segnala {str_instabilita} con possibilità di {tipo_prec}."
+            if "raffiche" in vento_evento:
+                vento_evento = ""
                 
         if vento_evento: record += f" {vento_evento}."
         if nebbia: record += f" {nebbia}."
@@ -351,6 +389,10 @@ def main():
                       data={"chat_id": chat_id, "text": bollettino_finale, "parse_mode": "Markdown"})
         if risposta_tg.status_code == 200:
             print("Bollettino inviato con successo!")
+            # --- BLOCCO SEMAFORO: AGGIORNAMENTO DOPO IL SUCCESSO ---
+            with open(FILE_LOCK, "w") as f:
+                f.write(oggi_str_lock)
+            # --------------------------------------------------------
         else:
             print(f"Errore Telegram: {risposta_tg.text}")
     else:
