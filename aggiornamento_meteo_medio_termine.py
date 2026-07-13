@@ -69,6 +69,7 @@ def interpella_gemini(dati_testuali, oggi_str, giorni_str):
     6. DISAGIO TERMICO: Quando citi la temperatura massima, affianca ESATTAMENTE la dicitura sul disagio che trovi nei dati.
     7. TERMINOLOGIA CIELO: Quando descrivi la nuvolosità, DEVI integrare nel testo ESATTAMENTE le stesse diciture fornite dai dati. Evita sinonimi liberi.
     8. PROBABILISMO SULLE PRECIPITAZIONI: Non dare mai i fenomeni precipitativi per certi. Usa sempre un tono probabilistico e riporta la percentuale indicata nei dati (es. "possibile instabilità (60%) con rischio di rovesci da confermare").
+    9. FILTRO INSTABILITÀ: Se all'interno della stessa giornata ci sono più orari con "possibile instabilità", individua quello con la percentuale di probabilità più alta e descrivi ESCLUSIVAMENTE quello nel bollettino. Ignora e non menzionare in alcun modo gli altri momenti di instabilità della stessa giornata.
     
     ESEMPIO DI STILE DA IMITARE ALLA PERFEZIONE:
     "La giornata di {giorni_str[2]} si aprirà con condizioni di stabilità atmosferica. Le temperature minime si assesteranno sui 19°C. Durante le ore di luce il cielo si manterrà in prevalenza sereno, favorendo un ampio soleggiamento che porterà la massima a 33°C (disagio marcato 🟠). Nel tardo pomeriggio si segnala una possibile instabilità (40%) con rischio di rovesci (da confermare), ma in serata la situazione volgerà al miglioramento."
@@ -257,7 +258,7 @@ def main():
             elif pct_1mm >= 25:
                 probabilita = 30
             else:
-                probabilita = 15 # Valore base
+                probabilita = 15
 
         tipo_prec = ""
         if instabilita != "assente":
