@@ -102,36 +102,43 @@ def percentuale_superamento(lista, soglia):
 
 def interpella_gemini(dati_testuali, oggi_str, domani_str):
     api_key = os.getenv("GEMINI_API_KEY")
-    # Inizializzazione nuovo client SDK
     client = genai.Client(api_key=api_key)
     
     prompt = f"""
     Sei un meteorologo professionista. Il tuo compito è scrivere un bollettino discorsivo, fluido ed elegante per Rivoli (TO) partendo dalla sintesi oraria fornita.
     
     REGOLE FERREE (PENA IL FALLIMENTO):
-    1. TITOLO: Inizia ESATTAMENTE con: <b>Aggiornamento meteo di {oggi_str}</b>
+    1. TITOLO E IMPAGINAZIONE: Inizia ESATTAMENTE con: <b>Aggiornamento meteo di {oggi_str}</b>. Lascia SEMPRE una riga vuota tra il titolo e il primo paragrafo, e una riga vuota tra i paragrafi.
     2. STRUTTURA: Scrivi esattamente due paragrafi: il primo per la giornata odierna, il secondo per domani.
     3. DIVIETO ASSOLUTO DI ELENCARE GLI ORARI: NON elencare MAI le temperature ora per ora.
     4. SINTESI DISCORSIVA: Sintetizza l'evoluzione usando fasi del giorno ("in mattinata", "nelle ore centrali", "nel pomeriggio", "in serata").
     5. TEMPERATURE DA CITARE: Cita solo la temperatura minima e la temperatura massima prevista.
     6. DISAGIO TERMICO: Quando citi la temperatura massima, affianca ESATTAMENTE la dicitura sul disagio fornita nei dati.
-    7. TERMINOLOGIA CIELO: Quando descrivi la nuvolosità, DEVI integrare nel testo ESATTAMENTE le stesse diciture fornite dai dati in minuscolo.
+    7. FLUIDITÀ E DIVIETO DI RIPETIZIONI (IMPORTANTE): Usa le diciture sulla nuvolosità fornite in modo NATURALE. È SEVERAMENTE VIETATO ripetere la parola "cielo" a distanza ravvicinata (es. NON scrivere "il cielo si presenterà come cielo sereno", scrivi "il cielo si manterrà sereno" o "avremo cielo sereno"). Il testo deve scorrere in modo logico, fluido e senza cacofonie.
     8. PROBABILISMO SULLE PRECIPITAZIONI ESTIVE: In caso di instabilità, usa un tono probabilistico (es. "un aumento dell'instabilità con possibili rovesci (60%)"). Se ci sono più orari instabili, prendi la percentuale più alta e ignora gli altri.
     9. GESTIONE MALTEMPO INVERNALE/AUTUNNALE: Se nei dati trovi "Perturbazione in transito", NON usare la parola "instabilità" o le percentuali. Invece, aggrega le fasce orarie indicando quando piove/nevica, l'intensità media (debole, moderata, forte) e individua SEMPRE l'orario del picco massimo e quanti mm/h sono previsti, citandoli nel testo.
-    10. DIVIETO ASSOLUTO DI FORMATTAZIONE MARKDOWN: Telegram va in crash con caratteri spaiati. NON USARE MAI asterischi (*), underscore (_) o formattazioni simili in nessun punto del testo. Usa solo testo pulito e il tag HTML <b> per il titolo.
+    10. DIVIETO ASSOLUTO DI FORMATTAZIONE MARKDOWN: Telegram va in crash con caratteri spaiati. NON USARE MAI asterischi (*), underscore (_) o formattazioni simili. Usa solo testo pulito e il tag HTML <b> per il titolo.
     
     ESEMPIO DI STILE ESTIVO DA IMITARE:
-    "La giornata di domenica si apre con stabilità atmosferica. Le minime si assestano sui 19°C. Durante le ore di luce il cielo si manterrà in prevalenza sereno, portando la massima a 33°C (disagio marcato 🟠). Nel tardo pomeriggio si segnala un aumento dell'instabilità con possibili rovesci o temporali (40%). In serata situazione in miglioramento."
+    <b>Aggiornamento meteo di domenica 12 luglio</b>
+
+    La giornata odierna si apre con stabilità atmosferica. Le minime si assestano sui 19°C. Durante le ore di luce il cielo si manterrà in prevalenza sereno, portando la massima a 33°C (disagio marcato 🟠). Nel tardo pomeriggio si segnala un aumento dell'instabilità con possibili rovesci o temporali (40%). In serata situazione in miglioramento.
     
+    La giornata di domani seguirà un copione simile...
+
     ESEMPIO DI STILE INVERNALE DA IMITARE:
-    "La giornata odierna vedrà un progressivo peggioramento. Le temperature oscilleranno tra una minima di 4°C e una massima di 8°C (nessun disagio). Dal pomeriggio è atteso il transito di una perturbazione con piogge deboli, che si intensificheranno in serata divenendo moderate. Il picco massimo delle precipitazioni è atteso intorno alle 21:00 con circa 4.5 mm/h. La ventilazione si manterrà modesta umida orientale."
+    <b>Aggiornamento meteo di domenica 12 dicembre</b>
+
+    La giornata odierna vedrà un progressivo peggioramento. Le temperature oscilleranno tra una minima di 4°C e una massima di 8°C (nessun disagio). Dal pomeriggio è atteso il transito di una perturbazione con piogge deboli, che si intensificheranno in serata divenendo moderate. Il picco massimo delle precipitazioni è atteso intorno alle 21:00 con circa 4.5 mm/h. La ventilazione si manterrà modesta umida orientale.
+    
+    La giornata di domani...
 
     DATI GIORNALIERI DA TRASFORMARE IN TESTO:
     {dati_testuali}
     """
     try:
         response = client.models.generate_content(
-            model='gemini-3.5-flash',
+            model='gemini-2.0-flash',
             contents=prompt,
             config=types.GenerateContentConfig(temperature=0.25)
         )
