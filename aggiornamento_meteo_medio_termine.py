@@ -108,10 +108,7 @@ def interpella_gemini(dati_testuali, oggi_str, giorni_str):
     
     REGOLE FERREE (PENA IL FALLIMENTO):
     1. TITOLO: Inizia ESATTAMENTE con: **Aggiornamento meteo a medio termine di {oggi_str}**
-    2. STRUTTURA: Scrivi esattamente tre paragrafi:
-       - Il primo paragrafo dedicato a {giorni_str[2]}
-       - Il secondo paragrafo dedicato a {giorni_str[3]}
-       - Il terzo paragrafo dedicato a {giorni_str[4]}
+    2. STRUTTURA: Scrivi tre paragrafi: il primo per {giorni_str[2]}, il secondo per {giorni_str[3]}, il terzo per {giorni_str[4]}.
     3. DIVIETO ASSOLUTO DI ELENCARE GLI ORARI: NON elencare MAI le temperature ora per ora.
     4. SINTESI DISCORSIVA: Sintetizza l'evoluzione usando fasi del giorno ("in mattinata", "nelle ore centrali", "nel pomeriggio", "in serata").
     5. TEMPERATURE DA CITARE: Cita solo la temperatura minima e la temperatura massima prevista.
@@ -119,6 +116,7 @@ def interpella_gemini(dati_testuali, oggi_str, giorni_str):
     7. TERMINOLOGIA CIELO: Quando descrivi la nuvolosità, DEVI integrare nel testo ESATTAMENTE le stesse diciture fornite dai dati in minuscolo.
     8. PROBABILISMO SULLE PRECIPITAZIONI ESTIVE: In caso di instabilità, usa un tono probabilistico (es. "un aumento dell'instabilità con possibili rovesci (60%)").
     9. GESTIONE MALTEMPO INVERNALE/AUTUNNALE: Se nei dati trovi "Perturbazione in transito", NON usare la parola "instabilità". Descrivi le fasce orarie in cui piove/nevica aggregandole, indica la loro intensità (debole, moderata, forte) e indica SEMPRE l'orario del picco massimo in mm/h, citandolo nel testo.
+    10. DIVIETO ASSOLUTO DI FORMATTAZIONE (IMPORTANTE): Tranne che per il titolo iniziale (che deve avere i **), NON usare MAI altri asterischi (* o **), trattini bassi (_), o elenchi puntati nel resto del bollettino. Scrivi solo testo pulito per evitare crash su Telegram.
     
     ESEMPIO DI STILE INVERNALE DA IMITARE:
     "La giornata di {giorni_str[2]} vedrà un progressivo peggioramento. Le temperature oscilleranno tra una minima di 4°C e una massima di 8°C (nessun disagio). Dal pomeriggio è atteso il transito di una perturbazione con piogge deboli, che si intensificheranno in serata divenendo moderate. Il picco massimo delle precipitazioni è atteso intorno alle 21:00 con circa 4.5 mm/h. La ventilazione si manterrà modesta umida orientale."
@@ -150,6 +148,10 @@ def main():
     dt_inizio_estrazione = dt_oggi + timedelta(days=2)
     dt_fine_estrazione = dt_oggi + timedelta(days=4)
 
+    dati_det = {}
+    dati_eps = {}
+    usa_seamless = False
+
     try:
         dati_det = scarica_dati_con_retry("https://api.open-meteo.com/v1/forecast", params={
             "latitude": LAT, "longitude": LON,
@@ -172,17 +174,17 @@ def main():
         
         orari_temp = dati_det.get('hourly', {}).get('time', [])
         target_dt = dt_fine_estrazione + timedelta(hours=20)
-        usa_seamless = False
         
-        if not orari_temp:
+        if not orari_temp or datetime.fromisoformat(orari_temp[-1]) < target_dt:
             usa_seamless = True
-        else:
-            ultimo_orario = datetime.fromisoformat(orari_temp[-1])
-            if ultimo_orario < target_dt:
-                usa_seamless = True
-                
-        if usa_seamless:
-            print("⚠️ ICON-CH2 non copre fino alle 20:00 del quinto giorno (o è offline). Fallback su ICON-SEAMLESS in corso...")
+            
+    except Exception as e:
+        print(f"⚠️ Errore con ICON-CH2 (possibile timeout o server down): {e}. Fallback su SEAMLESS in corso...")
+        usa_seamless = True
+
+    if usa_seamless:
+        try:
+            print("⚠️ Procedo con ICON-SEAMLESS...")
             dati_det = scarica_dati_con_retry("https://api.open-meteo.com/v1/forecast", params={
                 "latitude": LAT, "longitude": LON,
                 "hourly": "wind_direction_10m,cape,sunshine_duration,apparent_temperature,temperature_1000hPa,temperature_975hPa,temperature_950hPa,temperature_925hPa,temperature_900hPa,temperature_850hPa,temperature_800hPa",
@@ -201,10 +203,9 @@ def main():
                 "start_date": dt_inizio_estrazione.strftime("%Y-%m-%d"),
                 "end_date": dt_fine_estrazione.strftime("%Y-%m-%d")
             })
-
-    except Exception as e:
-        print(f"❌ Errore fatale nel recupero dati Open-Meteo: {e}")
-        return
+        except Exception as e:
+            print(f"❌ Errore fatale nel recupero dati Open-Meteo (Seamless fallito): {e}")
+            return
 
     h_det = dati_det.get('hourly', {})
     h_eps = dati_eps.get('hourly', {})
@@ -367,7 +368,6 @@ def main():
         silenzia_vento = (estate and instabilita != "assente")
         
         if not silenzia_vento:
-            # Determinazione scala vento base
             if w_gst_media >= 75 or w_spd_media >= 40: int_vento = "tempestosa"
             elif w_gst_media >= 55 or w_spd_media >= 30: int_vento = "forte"
             elif w_gst_media >= 40 or w_spd_media >= 20: int_vento = "modesta"
@@ -379,7 +379,6 @@ def main():
                 crollo_dew = (dew_point_prev - dew_media) >= 5
                 aumento_ur = (ur_media - ur_prev) >= 5
                 
-                # Filtro anti-rumore
                 if aumento_spd < 5 and w_gst_media < 30:
                     pass 
                 else:
@@ -393,7 +392,6 @@ def main():
                     else:
                         vento_evento = f"ventilazione {int_vento}"
             else:
-                # Caso primissima ora
                 if w_gst_media >= 30 or w_spd_media >= 15:
                     vento_evento = f"ventilazione {int_vento}"
                             
