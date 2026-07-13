@@ -5,7 +5,9 @@ import time
 import requests
 from datetime import datetime, timedelta
 
-import google.generativeai as genai
+# NUOVO SDK GEMINI
+from google import genai
+from google.genai import types
 
 LAT = 45.07347491421504
 LON = 7.543461388723449
@@ -100,14 +102,14 @@ def percentuale_superamento(lista, soglia):
 
 def interpella_gemini(dati_testuali, oggi_str, domani_str):
     api_key = os.getenv("GEMINI_API_KEY")
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('models/gemini-3.5-flash')
+    # Inizializzazione nuovo client SDK
+    client = genai.Client(api_key=api_key)
     
     prompt = f"""
     Sei un meteorologo professionista. Il tuo compito è scrivere un bollettino discorsivo, fluido ed elegante per Rivoli (TO) partendo dalla sintesi oraria fornita.
     
     REGOLE FERREE (PENA IL FALLIMENTO):
-    1. TITOLO: Inizia ESATTAMENTE con: **Aggiornamento meteo di {oggi_str}**
+    1. TITOLO: Inizia ESATTAMENTE con: <b>Aggiornamento meteo di {oggi_str}</b>
     2. STRUTTURA: Scrivi esattamente due paragrafi: il primo per la giornata odierna, il secondo per domani.
     3. DIVIETO ASSOLUTO DI ELENCARE GLI ORARI: NON elencare MAI le temperature ora per ora.
     4. SINTESI DISCORSIVA: Sintetizza l'evoluzione usando fasi del giorno ("in mattinata", "nelle ore centrali", "nel pomeriggio", "in serata").
@@ -116,7 +118,7 @@ def interpella_gemini(dati_testuali, oggi_str, domani_str):
     7. TERMINOLOGIA CIELO: Quando descrivi la nuvolosità, DEVI integrare nel testo ESATTAMENTE le stesse diciture fornite dai dati in minuscolo.
     8. PROBABILISMO SULLE PRECIPITAZIONI ESTIVE: In caso di instabilità, usa un tono probabilistico (es. "un aumento dell'instabilità con possibili rovesci (60%)"). Se ci sono più orari instabili, prendi la percentuale più alta e ignora gli altri.
     9. GESTIONE MALTEMPO INVERNALE/AUTUNNALE: Se nei dati trovi "Perturbazione in transito", NON usare la parola "instabilità" o le percentuali. Invece, aggrega le fasce orarie indicando quando piove/nevica, l'intensità media (debole, moderata, forte) e individua SEMPRE l'orario del picco massimo e quanti mm/h sono previsti, citandoli nel testo.
-    10. DIVIETO ASSOLUTO DI FORMATTAZIONE (IMPORTANTE): Tranne che per il titolo iniziale (che deve avere i **), NON usare MAI altri asterischi (* o **), trattini bassi (_), o elenchi puntati nel resto del bollettino. Scrivi solo testo pulito per evitare crash su Telegram.
+    10. DIVIETO ASSOLUTO DI FORMATTAZIONE MARKDOWN: Telegram va in crash con caratteri spaiati. NON USARE MAI asterischi (*), underscore (_) o formattazioni simili in nessun punto del testo. Usa solo testo pulito e il tag HTML <b> per il titolo.
     
     ESEMPIO DI STILE ESTIVO DA IMITARE:
     "La giornata di domenica si apre con stabilità atmosferica. Le minime si assestano sui 19°C. Durante le ore di luce il cielo si manterrà in prevalenza sereno, portando la massima a 33°C (disagio marcato 🟠). Nel tardo pomeriggio si segnala un aumento dell'instabilità con possibili rovesci o temporali (40%). In serata situazione in miglioramento."
@@ -128,7 +130,11 @@ def interpella_gemini(dati_testuali, oggi_str, domani_str):
     {dati_testuali}
     """
     try:
-        response = model.generate_content(prompt, generation_config={"temperature": 0.25})
+        response = client.models.generate_content(
+            model='gemini-2.0-flash',
+            contents=prompt,
+            config=types.GenerateContentConfig(temperature=0.25)
+        )
         return response.text
     except Exception as e:
         return f"Errore AI: {e}"
@@ -464,8 +470,9 @@ def main():
     chat_id = os.getenv("TELEGRAM_CHAT_ID")
 
     if token and chat_id:
+        # PARSE_MODE MODIFICATO IN HTML PER PREVENIRE CRASH DI FORMATTAZIONE
         risposta_tg = requests.post(f"https://api.telegram.org/bot{token}/sendMessage", 
-                      data={"chat_id": chat_id, "text": bollettino_finale, "parse_mode": "Markdown"})
+                      data={"chat_id": chat_id, "text": bollettino_finale, "parse_mode": "HTML"})
         if risposta_tg.status_code == 200:
             print("Bollettino inviato con successo!")
             with open(FILE_LOCK, "w") as f:
