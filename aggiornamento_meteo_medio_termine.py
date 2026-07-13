@@ -105,25 +105,28 @@ def interpella_groq(dati_testuali, oggi_str, giorni_str):
     client = Groq(api_key=api_key)
     
     prompt = f"""
-    Sei un meteorologo professionista, esperto del microclima piemontese e della zona di Rivoli (TO). Il tuo compito è redigere un bollettino di tendenza a MEDIO TERMINE, elegante, fluido e coeso, analizzando la striscia di dati orari e gli estremi forniti per i tre giorni considerati.
+    Sei un meteorologo professionista. Il tuo compito è scrivere un bollettino discorsivo, fluido ed elegante per Rivoli (TO) a MEDIO TERMINE, partendo dalla sintesi oraria fornita.
+    
+    REGOLE FERREE (PENA IL FALLIMENTO):
+    1. TITOLO E IMPAGINAZIONE: Inizia ESATTAMENTE con: <b>Aggiornamento meteo a medio termine di {oggi_str}</b>. Lascia una riga vuota tra il titolo e il primo paragrafo. NON inserire righe vuote tra un paragrafo e l'altro, vai semplicemente a capo.
+    2. STRUTTURA: Scrivi tre paragrafi: il primo per {giorni_str[2]}, il secondo per {giorni_str[3]}, il terzo per {giorni_str[4]}.
+    3. DIVIETO ASSOLUTO DI ELENCARE GLI ORARI: NON elencare MAI le temperature ora per ora.
+    4. SINTESI DISCORSIVA: Sintetizza l'evoluzione usando fasi del giorno ("in mattinata", "nelle ore centrali", "nel pomeriggio", "in serata").
+    5. TEMPERATURE DA CITARE: Cita solo la temperatura minima e la temperatura massima prevista.
+    6. DISAGIO TERMICO: Quando citi la temperatura massima, affianca ESATTAMENTE la dicitura sul disagio che trovi nei dati (comprese le emoji 🟢, 🟡, 🟠, 🔴, 🟣 o quelle invernali).
+    7. FLUIDITÀ E DIVIETO DI RIPETIZIONI (IMPORTANTE): Usa le diciture sulla nuvolosità fornite in modo NATURALE. È SEVERAMENTE VIETATO ripetere la parola "cielo" a distanza ravvicinata. Il testo deve scorrere in modo logico, fluido e senza cacofonie.
+    8. PROBABILISMO SULLE PRECIPITAZIONI ESTIVE: In caso di instabilità, usa un tono probabilistico (es. "un aumento dell'instabilità con possibili rovesci (60%)").
+    9. GESTIONE MALTEMPO INVERNALE/AUTUNNALE: Se nei dati trovi "Perturbazione in transito", NON usare la parola "instabilità". Descrivi le fasce orarie in cui piove/nevica aggregandole, indica la loro intensità (debole, moderata, forte) e indica SEMPRE l'orario del picco massimo in mm/h, citandolo nel testo.
+    10. DIVIETO ASSOLUTO DI FORMATTAZIONE MARKDOWN: Telegram va in crash con caratteri spaiati. NON USARE MAI asterischi (*), underscore (_) o formattazioni simili in nessun punto del testo. Usa solo testo pulito e il tag HTML <b> per il titolo.
+    
+    ESEMPIO DI STILE INVERNALE DA IMITARE:
+    <b>Aggiornamento meteo a medio termine di domenica 12 dicembre</b>
 
-    LINEE GUIDA PER L'ANALISI METEOROLOGICA (RAGIONA DA ESPERTO):
-    1. Dinamiche delle Precipitazioni:
-       - Instabilità Convettiva (Temporali di calore): Se noti piogge pomeridiane o serali repentine associate a CAPE > 150-200 J/kg, inquadra la tendenza come instabilità termo-convettiva. Usa un approccio probabilistico (es. "possibili spunti temporaleschi pomeridiani (40%)") prendendo come riferimento la percentuale massima (Prob) di quella fascia.
-       - Perturbazioni Frontali (Maltempo strutturato): Se le precipitazioni coprono molte ore di fila con CAPE nullo, descrivi il passaggio del fronte perturbato, indicando in quale fase del giorno si concentreranno i fenomeni più intensi e indicando l'ora del picco con i relativi mm/h massimi rilevati.
-2. Filtro della Ventilazione: Ignora completamente il vento se è debole. Segnalalo solo se le raffiche superano i 30 km/h o se noti dinamiche chiare di Föhn (vento forte da NW/N/W associato a un crollo del Dew Point e aria molto secca).
-    3. Sintesi del Cielo: Esamina l'andamento dei minuti di soleggiamento orario (Sole) per ricavare un quadro d'insieme sull'evoluzione della copertura nuvolosa nel corso della giornata (es. da parzialmente nuvoloso a sereno), senza fare una cronistoria ora per ora.
-
-    REGOLE DI STILE E DI COMPATTEZZA (FERREE):
-    - TITOLO: Inizia l'output ESATTAMENTE con: <b>Aggiornamento meteo a medio termine di {oggi_str}</b>.
-    - STRUTTURA: Scrivi esattamente tre paragrafi (un paragrafo per il primo giorno di estrazione, uno per il secondo, uno per il terzo). Lascia una riga vuota DOPO il titolo. È SEVERAMENTE VIETATO lasciare righe vuote tra un paragrafo e l'altro: vai semplicemente a capo per mantenere il testo del bollettino compatto ed elegante.
-    - REQUISITO DELLE TEMPERATURE: All'interno di ciascun paragrafo, cita la temperatura minima e la temperatura massima previste. Accanto alla temperatura massima, aggiungi ESATTAMENTE la dicitura sul disagio termico con la relativa emoji che trovi nei dati di input (es. "(disagio marcato 🟠)" o "(disagio lieve da freddo ❄️)").
-    - RIMOZIONE AUTOMATISMI ROBOTICI (PENA IL FALLIMENTO):
-       * È SEVERAMENTE VIETATO generare espressioni ridondanti o cacofoniche come "nuvolosità parzialmente nuvolosa". Esprimiti in modo naturale (es. "il cielo si presenterà parzialmente nuvoloso", "nuvolosità irregolare", "spazi di sereno").
-       * Se non piove, È VIETATO scrivere frasi meccaniche come "senza segnalazioni di precipitazioni significative" o "nessuna precipitazione prevista". Descrivi la giornata parlando di "contesto asciutto", "tempo stabile", oppure ometti del tutto il riferimento alla pioggia.
-    - FORMATTAZIONE: Non usare MAI caratteri di formattazione Markdown (niente asterischi *, underscore _, o elenchi puntati). Usa solo testo pulito e il tag HTML <b> per il titolo.
-
-    DATI GIORNALIERI DA ELABORARE:
+    La giornata di {giorni_str[2]} vedrà un progressivo peggioramento. Le temperature oscilleranno tra una minima di 4°C e una massima di 8°C (nessun disagio o freddo tollerabile 🟢). Dal pomeriggio è atteso il transito di una perturbazione con piogge deboli, che si intensificheranno in serata divenendo moderate. Il picco massimo delle precipitazioni è atteso intorno alle 21:00 con circa 4.5 mm/h. La ventilazione si manterrà forte umida orientale.
+    La giornata di {giorni_str[3]} sarà caratterizzata...
+    Infine, per {giorni_str[4]} assisteremo a...
+    
+    DATI GIORNALIERI DA TRASFORMARE IN TESTO:
     {dati_testuali}
     """
     try:
