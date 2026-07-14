@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 import os
 import sys
 import math
@@ -68,15 +67,12 @@ def get_finestre_innesco_ensemble():
         orari = dati_d2.get('hourly', {}).get('time', [])
         
         def conta_membri_sopra_soglia(hourly_data, indice_ora, soglia, tolleranza_ore=1):
+            """Cerca scenari validi usando una finestra scorrevole per evitare sfasamenti."""
             if not hourly_data: return 0
             count = 0
             for key, lst in hourly_data.items():
-                # Analizziamo solo le chiavi dei singoli membri
                 if key.startswith("precipitation_member"):
-                    # Calcoliamo la fine della finestra (massimo tolleranza_ore)
                     fine_finestra = min(indice_ora + tolleranza_ore, len(lst))
-                    
-                    # Il membro conta come "1" se supera la soglia in ALMENO UNA delle ore del lasso temporale
                     if any(lst[j] is not None and lst[j] >= soglia for j in range(indice_ora, fine_finestra)):
                         count += 1
             return count
@@ -101,19 +97,19 @@ def get_finestre_innesco_ensemble():
                     membri_ch2_forte = conta_membri_sopra_soglia(dati_ch2.get('hourly', {}), i, 1.0, tolleranza_ore=4) if ch2_disponibile else 0
                     
                     # Costruzione FINESTRA DATI: continuiamo a guardare la singola ora (tolleranza_ore=1)
-                    # per estrarre i dati termodinamici (CAPE, wind shear) solo ed esattamente quando c'è segnale
+                    # per estrarre i dati termodinamici solo ed esattamente quando c'è segnale debole (0.2mm)
                     membri_d2_deboli = conta_membri_sopra_soglia(dati_d2.get('hourly', {}), i, 0.2, tolleranza_ore=1)
                     membri_ch2_deboli = conta_membri_sopra_soglia(dati_ch2.get('hourly', {}), i, 0.2, tolleranza_ore=1) if ch2_disponibile else 0
 
                     if membri_d2_deboli >= 1 or membri_ch2_deboli >= 1:
                         indici_finestra.append(i)
                         
-                    # Verifica condizione di innesco forte (appoggiata sulla finestra di 4 ore)
+                    # Verifica condizione di innesco forte (Soglie da esperti: 1 e 1)
                     if ch2_disponibile:
-                        if membri_d2_forte >= 4 and membri_ch2_forte >= 4:
+                        if membri_d2_forte >= 1 and membri_ch2_forte >= 1:
                             innesco_valido = True
                     else:
-                        if membri_d2_forte >= 6:
+                        if membri_d2_forte >= 2:
                             innesco_valido = True
 
             # Salviamo la finestra solo se la condizione di trigger è scattata in almeno una di queste ore
@@ -156,7 +152,7 @@ def stima_grandine_python(cape, dls, lapse_rate, zero_termico):
     if cape >= 1500 and (dls >= 20 or lapse_rate >= 7.0):
         return "GROSSA (> 3-4 cm) - Supportata da forti updraft e shear marcato."
     if cape >= 1000 and dls >= 12:
-        return "MEDIA (1.5 - 3 cm) - Possibile in structures multicellulari."
+        return "MEDIA (1.5 - 3 cm) - Possibile in strutture multicellulari."
     if cape >= 500 and dls < 12:
         return "PICCOLA (< 1.5 cm) - Rapido collasso della colonna precipitante."
     return "Assente o di piccole dimensioni."
@@ -168,20 +164,19 @@ def interpella_groq(report_tecnico, giorno_str):
     client = Groq(api_key=api_key)
     
     prompt = f"""
-    Sei un meteorologo che deve comunicare un avviso rapido al pubblico generale. Il tuo compito è stilare un BREVE riassunto discorsivo sui rischi principali in caso di temporali per il giorno {giorno_str} a Rivoli (TO).
+    Sei un meteorologo esperto in dinamiche convettive. Il tuo compito è stilare un bollettino di analisi 
+    tecnica sul TIPO DI SETUP a disposizione dell'atmosfera per il giorno {giorno_str} a Rivoli (TO).
 
     DATI ESTRATTI NELLA FINESTRA PRECIPITATIVA (Media dei parametri):
     {report_tecnico}
 
     REGOLE RIGOROSE:
-    1. CONDIZIONALITÀ ASSOLUTA E TERMINOLOGIA: Inizia e mantieni sempre il discorso evidenziando l'incertezza dell'innesco (es. "Nella giornata di {giorno_str}, nel caso in cui dovesse verificarsi un temporale..."). I temporali non sono una certezza. PARLA ESCLUSIVAMENTE DI "TEMPORALI", È SEVERAMENTE VIETATO USARE LA PAROLA "ROVESCI".
-    2. LINGUAGGIO PER L'UTENTE MEDIO: Non usare ASSOLUTAMENTE NESSUN termine tecnico. Zero riferimenti a CAPE, DLS, LLS, Lapse Rate, Vettore Traslazione, Base Nubi, ecc.
-    3. FOTOGRAFA LE CRITICITÀ PRINCIPALI traducendo i dati in fenomeni pratici:
-       - Se il "Vettore Traslazione" è basso (< 20 km/h), evidenzia il rischio di "locali allagamenti" o "possibili accumuli ingenti per precipitazioni stazionarie".
-       - Se la "Stima grandine" del modello indica "MEDIA" o "GROSSA", segnala esplicitamente il rischio di "grandine anche di grosse dimensioni".
-       - Se il "Deep Layer Shear" è alto (> 20 m/s) o l'umidità a 700hPa è bassa (< 50%), avvisa della possibilità di "forti raffiche di vento lineare (downburst)".
-    4. SINTESI ESTREMA: Scrivi un solo paragrafo fluido di massimo due/tre frasi. Esempio di tono: "Nella giornata di mercoledì, nel caso in cui dovessero svilupparsi dei temporali, le criticità maggiori potrebbero derivare da locali allagamenti per le precipitazioni stazionarie e possibili forti raffiche di vento."
-    5. NESSUNA raccomandazione comportamentale o di protezione civile, limitati a descrivere puramente l'intensità dei fenomeni attesi.
+    1. INNESCabilità CONDIZIONATA: Non dare la precipitazione o i temporali per certi. L'inibizione convettiva (CIN) o l'assenza di trigger dinamici potrebbero annullare tutto. Inizia l'analisi esplicitando questo concetto (es. "Qualora il sistema riesca a superare l'inibizione convettiva...", "In caso di effettivo innesco...").
+    2. LINGUAGGIO TECNICO MA CHIARO: Sei rivolto a un appassionato di meteorologia. Analizza i dati numerici forniti (Lapse Rate, DLS, LLS, LCL, Traslazione).
+    3. TRASLAZIONE: Usa il parametro "Vettore Traslazione (CBL Wind)" per dedurre se il sistema sarà veloce (squall line) o stazionario/lento (rischio flash flood). Se < 20 km/h il rischio accumuli locali è alto.
+    4. STRUTTURA CELLE: Usa DLS (Deep Layer Shear) per determinare la tipologia. < 12 m/s: Cella singola/Pulse storm. 12-20 m/s: Multicelle. > 20 m/s: Rischio Supercelle.
+    5. FENOMENOLOGIA: Valuta il rischio Downburst incrociando l'umidità a 700 hPa (< 50% alta probabilità di raffiche secche) e il lapse rate. Includi la stima grandine del modello.
+    6. Non superare i due/tre paragrafi ben scorrevoli. Non dare raccomandazioni di protezione civile.
     """
 
     try:
@@ -198,6 +193,7 @@ def main():
     FILE_LOCK = "lock_temporali.txt"
     oggi_str_formato_iso = datetime.now().strftime("%Y-%m-%d")
     
+    # CONTROLLO SEMAFORO: Se ha già inviato un'analisi oggi, si stoppa subito
     if os.path.exists(FILE_LOCK):
         with open(FILE_LOCK, "r") as f:
             if f.read().strip() == oggi_str_formato_iso:
@@ -214,7 +210,8 @@ def main():
     print("Scaricamento profili termodinamici deterministici ICON-D2...")
     hourly = fetch_dati_convezione_d2()
     
-    messaggio_telegram = ""
+    corpo_messaggio = ""
+    giorni_validi = []
     inviato_almeno_uno = False
 
     for data_str, indici_ore in finestre_attive.items():
@@ -290,27 +287,27 @@ def main():
         Modello matematico grandine: {stima_g}
         """
         
-        # Traduzione manuale e sicura della data in formato discorsivo italiano
-        dt_giorno = datetime.strptime(data_str, "%Y-%m-%d")
-        giorni_it = ["lunedì", "martedì", "mercoledì", "giovedì", "venerdì", "sabato", "domenica"]
-        mesi_it = ["", "gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno", "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre"]
-        
-        giorno_formattato = f"{giorni_it[dt_giorno.weekday()]} {dt_giorno.day} {mesi_it[dt_giorno.month]}"
+        giorno_formattato = datetime.strptime(data_str, "%Y-%m-%d").strftime("%d/%m/%Y")
         print(f"[{giorno_formattato}] Elaborazione responso diagnostico tramite Groq...")
         responso = interpella_groq(report_dati, giorno_formattato)
         
-        # Gestione differenziata Avviso/Pre-Avviso in base al giorno
-        if data_str == oggi_str_formato_iso:
-            titolo_blocco = "🌩 <b>AVVISO PER POSSIBILI TEMPORALI</b>"
-        else:
-            titolo_blocco = "🌩 <b>PRE-AVVISO PER POSSIBILI TEMPORALI</b>"
-        
-        messaggio_telegram += f"{titolo_blocco}\n📅 <b>Target: {giorno_formattato}</b>\n\n{responso}\n\n➖➖➖➖➖➖➖➖➖➖\n\n"
+        # Costruiamo il blocco aggiungendolo alla stringa
+        corpo_messaggio += f"📅 <b>Target: {giorno_formattato}</b>\n\n{responso}\n\n➖➖➖➖➖➖➖➖➖➖\n\n"
+        giorni_validi.append(data_str)
         inviato_almeno_uno = True
 
+    # Creazione del titolo dinamico e invio condizionato a Telegram
     if inviato_almeno_uno:
-        # Rimuove l'ultimo separatore tratteggiato per una formattazione più pulita
-        messaggio_telegram = messaggio_telegram.rstrip("➖➖➖➖➖➖➖➖➖➖\n\n")
+        # Rimuove l'ultimo separatore tratteggiato
+        corpo_messaggio = corpo_messaggio.rstrip("➖➖➖➖➖➖➖➖➖➖\n\n")
+        
+        # Se c'è ANCHE o SOLTANTO un giorno nel futuro, è un PRE-AVVISO
+        if any(giorno > oggi_str_formato_iso for giorno in giorni_validi):
+            titolo = "🌩 <b>PRE-AVVISO: ANALISI SETUP CONVETTIVO CONDIZIONALE</b>\n\n"
+        else:
+            titolo = "🌩 <b>AVVISO: ANALISI SETUP CONVETTIVO CONDIZIONALE</b>\n\n"
+            
+        messaggio_telegram = titolo + corpo_messaggio
         
         token = os.getenv("TELEGRAM_TOKEN")
         chat_id = os.getenv("TELEGRAM_CHAT_ID")
@@ -324,6 +321,7 @@ def main():
                               data={"chat_id": chat_id, "text": messaggio_telegram, "parse_mode": "HTML"})
                 if res.status_code == 200:
                     print("Analisi convettiva inviata con successo su Telegram!")
+                    # SCRITTURA DEL SEMAFORO
                     with open(FILE_LOCK, "w") as f:
                         f.write(oggi_str_formato_iso)
                 else:
