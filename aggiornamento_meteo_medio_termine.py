@@ -407,23 +407,22 @@ def main():
             elif w_gst_media >= 40 or w_spd_media >= 20: int_vento = "modesta"
             else: int_vento = "blanda"
 
-            if dew_point_prev is not None and w_gst_prev is not None and ur_prev is not None and w_spd_prev is not None:
-                aumento_spd = w_spd_media - w_spd_prev
-                aumento_vento = (w_gst_media - w_gst_prev) >= 10   # Soglia raffica ridotta a 10 km/h
-                crollo_dew = (dew_point_prev - dew_media) >= 3     # Soglia Föhn ridotta a 3°C
-                aumento_ur = (ur_media - ur_prev) >= 3             # Soglia vento orientale ridotta al 3%
+            if dew_point_prev is not None and w_gst_prev is not None and ur_prev is not None:
                 
-                if aumento_spd < 5 and w_gst_media < 30:
-                    pass 
-                else:
-                    is_fohn = w_dir_str in ['NW', 'N', 'W'] and aumento_vento and crollo_dew
-                    is_oriente = w_dir_str in ['E', 'NE', 'SE'] and aumento_ur
-                    
-                    # Abbiamo rimosso "modesta" dalle esclusioni: ora scatta anche per vento moderato
-                    if is_fohn and int_vento not in ["blanda"]:
-                        vento_evento = f"ventilazione {int_vento} per condizioni di Föhn"
-                    elif is_oriente and int_vento not in ["blanda"]:
-                        vento_evento = f"ventilazione {int_vento} umida orientale"
+                # 1. Condizioni per il Föhn Alpino (Raffica >= 10 km/h, Dew Point scende di >= 2°C)
+                is_fohn = (w_dir_str in ['NW', 'N', 'W'] and 
+                           (w_gst_media - w_gst_prev) >= 10 and 
+                           (dew_point_prev - dew_media) >= 2)
+                
+                # 2. Condizioni per Ventilazione Orientale (Raffica >= 5 km/h, UR assoluta > 40%)
+                is_oriente = (w_dir_str in ['E', 'NE', 'SE'] and 
+                              (w_gst_media - w_gst_prev) >= 5 and 
+                              ur_media > 40)
+                
+                if is_fohn and int_vento not in ["blanda"]:
+                    vento_evento = f"ventilazione {int_vento} per condizioni di Föhn"
+                elif is_oriente and int_vento not in ["blanda"]:
+                    vento_evento = f"ventilazione {int_vento} umida orientale"
                             
         dew_point_prev = dew_media
         w_gst_prev = w_gst_media
