@@ -528,14 +528,18 @@ def main():
     chat_id = os.getenv("TELEGRAM_CHAT_ID")
 
     if token and chat_id:
-        risposta_tg = requests.post(f"https://api.telegram.org/bot{token}/sendMessage", 
-                      data={"chat_id": chat_id, "text": bollettino_finale, "parse_mode": "HTML"})
-        if risposta_tg.status_code == 200:
-            print("Bollettino a medio termine inviato con successo!")
-            with open(FILE_LOCK, "w") as f:
-                f.write(oggi_str_lock)
+        # CONTROLLO DI SICUREZZA: Invia solo se Groq non ha restituito un errore
+        if bollettino_finale.startswith("Errore"):
+            print(f"Blocco l'invio su Telegram a causa di un errore API: {bollettino_finale}")
         else:
-            print(f"Errore Telegram: {risposta_tg.text}")
+            risposta_tg = requests.post(f"https://api.telegram.org/bot{token}/sendMessage", 
+                          data={"chat_id": chat_id, "text": bollettino_finale, "parse_mode": "HTML"})
+            if risposta_tg.status_code == 200:
+                print("Bollettino inviato con successo!")
+                with open(FILE_LOCK, "w") as f:
+                    f.write(oggi_str_lock)
+            else:
+                print(f"Errore Telegram: {risposta_tg.text}")
     else:
         print("Errore: Token o Chat ID mancanti! Stampo a video:")
         print("-------------------------------------------------")
