@@ -428,7 +428,7 @@ def main():
                     
                     # Abbiamo rimosso "modesta" dalle esclusioni: ora scatta anche per vento moderato
                     if is_fohn and int_vento not in ["blanda"]:
-                        vento_evento = f"ventilazione {int_vento} da probabile Föhn"
+                        vento_evento = f"ventilazione {int_vento} per condizioni di Föhn"
                     elif is_oriente and int_vento not in ["blanda"]:
                         vento_evento = f"ventilazione {int_vento} umida orientale"
                             
