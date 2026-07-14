@@ -410,9 +410,9 @@ def main():
         silenzia_vento = (estate and instabilita != "assente")
         
         if not silenzia_vento:
-            if w_gst_media >= 75 or w_spd_media >= 40: int_vento = "tempestosa"
-            elif w_gst_media >= 55 or w_spd_media >= 30: int_vento = "forte"
-            elif w_gst_media >= 40 or w_spd_media >= 20: int_vento = "modesta"
+            if w_gst_media >= 70: int_vento = "tempestosa"
+            elif w_gst_media >= 50: int_vento = "forte"
+            elif w_gst_media >= 30: int_vento = "modesta"
             else: int_vento = "blanda"
 
             if dew_point_prev is not None and w_gst_prev is not None and ur_prev is not None:
