@@ -296,7 +296,7 @@ def main():
         perturbazione = False
         probabilita = 0
 
-       if estate:
+        if estate:
             if ch2_disponibile:
                 # Creiamo una finestra di tolleranza per CH2 (da 4 ore prima a 4 ore dopo)
                 inizio_finestra = max(0, i - 4)
