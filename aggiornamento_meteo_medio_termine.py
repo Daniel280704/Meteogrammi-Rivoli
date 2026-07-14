@@ -118,6 +118,8 @@ def interpella_groq(dati_testuali, oggi_str, giorni_str):
     8. PROBABILISMO SULLE PRECIPITAZIONI ESTIVE: In caso di instabilità, usa un tono probabilistico (es. "un aumento dell'instabilità con possibili rovesci (60%)").
     9. GESTIONE MALTEMPO INVERNALE/AUTUNNALE: Se nei dati trovi "Perturbazione in transito", NON usare la parola "instabilità". Descrivi le fasce orarie in cui piove/nevica aggregandole, indica la loro intensità (debole, moderata, forte) e indica SEMPRE l'orario del picco massimo in mm/h, citandolo nel testo.
     10. DIVIETO ASSOLUTO DI FORMATTAZIONE MARKDOWN: Telegram va in crash con caratteri spaiati. NON USARE MAI asterischi (*), underscore (_) o formattazioni simili in nessun punto del testo. Usa solo testo pulito e il tag HTML <b> per il titolo.
+    11. SILENZIO SUI FENOMENI ASSENTI: È ASSOLUTAMENTE VIETATO menzionare l'assenza di fenomeni. NON scrivere MAI frasi come "non sono previste precipitazioni", "assenza di fenomeni di rilievo" o "nessun rischio di pioggia". Se nei dati orari NON è menzionata la pioggia, il vento o il gelo, tu NON devi nominarli. Parla SOLO di ciò che c'è.
+    12. OGGETTIVITÀ METEOROLOGICA (NO FILLER testuale): NON aggiungere commenti personali, valutazioni soggettive o frasi di riempimento (es. "rendendo la giornata ideale per godersi il sole", "clima piacevole", "ottimo per stare all'aperto"). Attieniti alla sola traduzione dei dati atmosferici in testo oggettivo e asettico.
     
     ESEMPIO DI STILE INVERNALE DA IMITARE:
     <b>Aggiornamento meteo a medio termine di domenica 12 dicembre</b>
