@@ -4,6 +4,7 @@ import requests
 import sys
 import json
 from datetime import datetime, timedelta
+from groq import Groq
 
 try:
     from zoneinfo import ZoneInfo
@@ -52,65 +53,124 @@ def controlla_pulsante_telegram(token):
 
 def valuta_stress(bilancio):
     deficit = -bilancio 
+    if deficit < 5.0: return "SCARSO/NULLO 🟢"
+    elif deficit <= 15.0: return "MODERATO 🟡"
+    elif deficit <= 20.0: return "ALTO 🔴"
+    else: return "ESTREMO 🟣"
+
+def percentuale_superamento(lista, soglia):
+    valori_validi = [v for v in lista if v is not None]
+    if not valori_validi: return 0
+    return (sum(1 for v in valori_validi if v >= soglia) / len(valori_validi)) * 100
+
+def scarica_dati_con_retry(url, params, max_retries=3):
+    for tentativo in range(max_retries):
+        try:
+            resp = requests.get(url, params=params, timeout=60)
+            resp.raise_for_status()
+            return resp.json()
+        except requests.exceptions.RequestException as e:
+            if tentativo < max_retries - 1:
+                import time
+                time.sleep(5)
+            else:
+                raise e
+
+def interpella_groq(dati_testuali):
+    api_key = os.getenv("GROQ_API_KEY")
+    if not api_key: return "Errore: GROQ_API_KEY non trovata."
+        
+    client = Groq(api_key=api_key)
     
-    if deficit < 5.0:
-        return "🟢 SCARSO O NULLO"
-    elif deficit <= 15.0:
-        return "🟡 INTERMEDIO"
-    elif deficit <= 20.0:
-        return "🔴 ALTO"
-    else:
-        return "🟣 ESTREMO"
+    prompt = f"""
+    Sei un assistente agrometeorologico personale. Il tuo compito è scrivere UN UNICO PARAGRAFO fluido e discorsivo 
+    (massimo 4-5 frasi) per consigliare all'utente se e quando innaffiare il suo orto a Rivoli (TO).
+
+    DATI TECNICI ATTUALI DA ELABORARE:
+    {dati_testuali}
+
+    REGOLE FERREE E LOGICA DECISIONALE:
+    1. INIZIO: Spiega brevemente lo stato di stress idrico stimato per fine giornata odierna e come evolverà domani.
+    2. MEMORIA IRRIGAZIONE: Se nei dati risulta che l'utente ha bagnato l'orto ieri o oggi, ricordalo nel testo spiegando che questo è il motivo per cui lo stress è attualmente basso o moderato (es. "Oggi lo stress è moderato grazie all'irrigazione di ieri...").
+    3. CONSIGLIO IRRIGAZIONE: Consiglia esplicitamente all'utente di bagnare l'orto NELLA SERATA in cui lo stress diventa "ALTO" o "ESTREMO" (può essere stasera, oppure domani sera).
+    4. GESTIONE PIOGGIA: Se la probabilità di rovesci o temporali indicata nei dati è MAGGIORE O UGUALE AL 15%, devi assolutamente inserire un avviso. Esempio: "...tuttavia, poiché nelle prossime ore non sono esclusi rovesci o temporali (probabilità 40%), valuta attentamente se bagnare l'orto stasera per evitare ristagni". Non parlare in alcun modo di pioggia se la probabilità è inferiore al 15%.
+    5. FORMATTAZIONE: È SEVERAMENTE VIETATO usare asterischi (*) o underscore (_) per il grassetto o corsivo, Telegram andrà in crash. Usa solo il tag HTML <b>testo in grassetto</b> per evidenziare le parole chiave (come i livelli di stress <b>ALTO</b>, <b>ESTREMO</b>, ecc). Inserisci le emoji dei livelli di stress fornite.
+
+    Scrivi direttamente il bollettino senza convenevoli, saluti o introduzioni.
+    """
+    
+    try:
+        chat_completion = client.chat.completions.create(
+            messages=[{"role": "user", "content": prompt}],
+            model="llama-3.3-70b-versatile",
+            temperature=0.25,
+        )
+        return chat_completion.choices[0].message.content
+    except Exception as e:
+        return f"Errore AI Groq: {e}"
 
 def calcola_dati_orto():
-    api_params_det = {
+    # 1. Determinismo per ET0 (Seamless storico + previsionale)
+    params_det = {
         "latitude": LAT_RIVOLI, "longitude": LON_RIVOLI,
         "hourly": "precipitation,et0_fao_evapotranspiration",
         "models": "icon_seamless",
-        "past_days": 10, "forecast_days": 3, 
+        "past_days": 10, "forecast_days": 2, 
         "timezone": "Europe/Rome"
     }
     
-    api_params_eps = dict(api_params_det)
-    api_params_eps["hourly"] = "precipitation"
+    # 2. Ensemble per probabilità temporali/rovesci (D2 e CH2)
+    params_eps_base = {
+        "latitude": LAT_RIVOLI, "longitude": LON_RIVOLI,
+        "hourly": "precipitation",
+        "timezone": "Europe/Rome", "forecast_days": 2
+    }
     
     try:
-        dati_det = requests.get("https://api.open-meteo.com/v1/forecast", params=api_params_det, timeout=30).json()["hourly"]
-        dati_eps = requests.get("https://ensemble-api.open-meteo.com/v1/ensemble", params=api_params_eps, timeout=30).json()["hourly"]
+        dati_det = scarica_dati_con_retry("https://api.open-meteo.com/v1/forecast", params_det)["hourly"]
+        dati_eps_d2 = scarica_dati_con_retry("https://ensemble-api.open-meteo.com/v1/ensemble", {**params_eps_base, "models": "icon_d2"})["hourly"]
+        
+        ch2_disponibile = True
+        try:
+            dati_eps_ch2 = scarica_dati_con_retry("https://ensemble-api.open-meteo.com/v1/ensemble", {**params_eps_base, "models": "meteoswiss_icon_ch2_ensemble"})["hourly"]
+        except:
+            ch2_disponibile = False
+            dati_eps_ch2 = {}
+            
     except Exception as e:
         print(f"Errore download dati: {e}")
         sys.exit(1)
 
     times = dati_det["time"]
+    orari_eps = dati_eps_d2.get("time", [])
     now_rome = get_rome_time()
     
     oggi_str = now_rome.strftime("%Y-%m-%d")
     ieri_str = (now_rome - timedelta(days=1)).strftime("%Y-%m-%d")
     domani_str = (now_rome + timedelta(days=1)).strftime("%Y-%m-%d")
-    dopo_str = (now_rome + timedelta(days=2)).strftime("%Y-%m-%d")
 
+    # Lettura pulsante
     data_reset_manuale = None
     if os.path.exists("ultima_innaffiatura.txt"):
         with open("ultima_innaffiatura.txt", "r") as f:
             data_reset_manuale = f.read().strip()
+            
+    ha_bagnato_ieri = (data_reset_manuale == ieri_str)
+    ha_bagnato_oggi = (data_reset_manuale == oggi_str)
 
-    def get_idx(time_str):
-        try:
-            return times.index(time_str)
-        except ValueError:
-            return None
+    def get_idx(time_list, time_str):
+        try: return time_list.index(time_str)
+        except ValueError: return None
 
     p_det = dati_det["precipitation"]
     e_det = dati_det["et0_fao_evapotranspiration"]
 
-    # --- SIMULATORE STORICO IN MEMORIA ---
+    # --- SIMULATORE STORICO IN MEMORIA E CALCOLO FINO A FINE GIORNATA ODIERNA ---
     bilancio = 0.0
-    p_ieri = e_ieri = bil_ieri = 0.0
-    
-    for i in range(10, 0, -1):
+    for i in range(10, -1, -1): # Arriva fino a OGGI (incluso)
         data_storica = (now_rome - timedelta(days=i)).strftime("%Y-%m-%d")
-        idx_s = get_idx(f"{data_storica}T00:00")
-        idx_e = get_idx(f"{data_storica}T23:00")
+        idx_s = get_idx(times, f"{data_storica}T00:00")
+        idx_e = get_idx(times, f"{data_storica}T23:00")
         
         if idx_s is not None and idx_e is not None:
             p_giorno = sum(p for p in p_det[idx_s:idx_e+1] if p is not None)
@@ -118,158 +178,92 @@ def calcola_dati_orto():
             
             bilancio += (p_giorno - e_giorno)
             
+            # Reset se piove >= 3mm o se è stato premuto il bottone in quella data
             if p_giorno >= 3.0 or data_storica == data_reset_manuale:
                 bilancio = 0.0
             
-            if bilancio > 0.0:
-                bilancio = 0.0
-                
+            # Il terreno non trattiene acqua all'infinito
+            if bilancio > 0.0: bilancio = 0.0
+            # Limite saturazione massima siccità (25 mm negativi)
             bilancio = max(bilancio, -25.0)
 
-            if data_storica == ieri_str:
-                p_ieri = p_giorno
-                e_ieri = e_giorno
-                bil_ieri = bilancio
-
-    # --- OGGI (Prime 19 ore: 00:00 -> 19:00 inclusive) ---
-    idx_oggi_s = get_idx(f"{oggi_str}T00:00")
-    idx_oggi_e = get_idx(f"{oggi_str}T19:00")
+            if data_storica == oggi_str:
+                bil_oggi_fine_giornata = bilancio
+                
+    # --- PREVISIONE DOMANI ---
+    idx_domani_s = get_idx(times, f"{domani_str}T00:00")
+    idx_domani_e = get_idx(times, f"{domani_str}T23:00")
     
-    p_oggi = e_oggi = 0.0
-    if idx_oggi_s is not None and idx_oggi_e is not None:
-        p_oggi = sum(p for p in p_det[idx_oggi_s:idx_oggi_e+1] if p is not None)
-        e_oggi = sum(e for e in e_det[idx_oggi_s:idx_oggi_e+1] if e is not None)
-    
-    bilancio += (p_oggi - e_oggi)
-    if p_oggi >= 3.0 or oggi_str == data_reset_manuale:
-        bilancio = 0.0
-    if bilancio > 0.0:
-        bilancio = 0.0
-    bilancio = max(bilancio, -25.0)
-    bil_oggi = bilancio
-
-    # Spostiamo qui la funzione EPS per poter calcolare la sera di oggi
-    membri_eps = [k for k in dati_eps.keys() if "precipitation_member" in k]
-    
-    def calcola_eps_giorno(start, end):
-        p_media = 0.0
-        if start is not None and end is not None:
-            if membri_eps:
-                for i in range(start, end + 1):
-                    vals = [dati_eps[m][i] for m in membri_eps if dati_eps[m][i] is not None]
-                    if vals:
-                        p_media += sum(vals) / len(vals)
-            else:
-                p_media = sum(p for p in p_det[start:end+1] if p is not None)
-        return p_media
-
-    # --- OGGI SERA (20:00 -> 23:00 inclusive) controllo ore scoperte ---
-    idx_sera_s = get_idx(f"{oggi_str}T20:00")
-    idx_sera_e = get_idx(f"{oggi_str}T23:00")
-    
-    p_sera = calcola_eps_giorno(idx_sera_s, idx_sera_e)
-    e_sera = 0.0
-    if idx_sera_s is not None and idx_sera_e is not None:
-        e_sera = sum(e for e in e_det[idx_sera_s:idx_sera_e+1] if e is not None)
-    
-    # Aggiorniamo il bilancio in background per avere il punto di partenza perfetto per domani
-    bilancio_fine_oggi = bil_oggi + p_sera - e_sera
-    if p_sera >= 3.0: 
-        bilancio_fine_oggi = 0.0
-    if bilancio_fine_oggi > 0.0: 
-        bilancio_fine_oggi = 0.0
-    bilancio_fine_oggi = max(bilancio_fine_oggi, -25.0)
-    
-    avviso_sera = ""
-    if p_sera >= 3.0:
-        avviso_sera = "\n*(Possibile pioggia a breve: l'attuale stato idrico potrebbe migliorare)*"
-
-    # --- PREVISIONI (Ensemble) ---
-    
-    # Domani
-    idx_domani_s = get_idx(f"{domani_str}T00:00")
-    idx_domani_e = get_idx(f"{domani_str}T23:00")
-    p_domani = calcola_eps_giorno(idx_domani_s, idx_domani_e)
-    e_domani = 0.0
+    bil_domani = bil_oggi_fine_giornata
     if idx_domani_s is not None and idx_domani_e is not None:
+        p_domani = sum(p for p in p_det[idx_domani_s:idx_domani_e+1] if p is not None)
         e_domani = sum(e for e in e_det[idx_domani_s:idx_domani_e+1] if e is not None)
-    
-    # Domani parte dal bilancio ricalcolato di fine giornata di oggi
-    bil_domani = bilancio_fine_oggi + p_domani - e_domani
-    if p_domani >= 3.0: bil_domani = 0.0
-    if bil_domani > 0.0: bil_domani = 0.0
-    bil_domani = max(bil_domani, -25.0)
+        
+        bil_domani += (p_domani - e_domani)
+        if p_domani >= 3.0: bil_domani = 0.0
+        if bil_domani > 0.0: bil_domani = 0.0
+        bil_domani = max(bil_domani, -25.0)
 
-    # Dopodomani
-    idx_dopo_s = get_idx(f"{dopo_str}T00:00")
-    idx_dopo_e = get_idx(f"{dopo_str}T23:00")
-    p_dopo = calcola_eps_giorno(idx_dopo_s, idx_dopo_e)
-    e_dopo = 0.0
-    if idx_dopo_s is not None and idx_dopo_e is not None:
-        e_dopo = sum(e for e in e_det[idx_dopo_s:idx_dopo_e+1] if e is not None)
+    # --- CALCOLO PROBABILITA' PIOGGIA NELLE PROSSIME 24-30h (Dall'ora attuale a domani sera) ---
+    max_prob_pioggia = 0
+    trigger_pioggia_scattato = False
+    ora_attuale_str = now_rome.strftime("%Y-%m-%dT%H:00")
     
-    bil_dopo = bil_domani + p_dopo - e_dopo
-    if p_dopo >= 3.0: bil_dopo = 0.0
-    if bil_dopo > 0.0: bil_dopo = 0.0
-    bil_dopo = max(bil_dopo, -25.0)
+    idx_eps_start = get_idx(orari_eps, ora_attuale_str)
+    idx_eps_end = get_idx(orari_eps, f"{domani_str}T23:00")
+    
+    def membri_sopra_soglia_finestra(dati_eps_dict, start_idx, soglia=1.0, tolleranza=4):
+        """Conta quanti spaghi superano la soglia in ALMENO UNA delle ore della finestra scorrevole."""
+        membri_validi = 0
+        chiavi_membri = [k for k in dati_eps_dict.keys() if k.startswith('precipitation_member')]
+        for k in chiavi_membri:
+            lst = dati_eps_dict[k]
+            fine_finestra = min(start_idx + tolleranza, len(lst))
+            if any(lst[h] is not None and lst[h] >= soglia for h in range(start_idx, fine_finestra)):
+                membri_validi += 1
+        return membri_validi
+
+    if idx_eps_start is not None and idx_eps_end is not None:
+        max_pct_media = 0
+        
+        for j in range(idx_eps_start, idx_eps_end + 1):
+            
+            # 1. VERIFICA DEL TRIGGER (5 su D2 e 5 su CH2) nella finestra temporale
+            membri_d2_finestra = membri_sopra_soglia_finestra(dati_eps_d2, j, 1.0, 4)
+            membri_ch2_finestra = membri_sopra_soglia_finestra(dati_eps_ch2, j, 1.0, 4) if ch2_disponibile else 0
+            
+            if ch2_disponibile:
+                if membri_d2_finestra >= 5 and membri_ch2_finestra >= 5:
+                    trigger_pioggia_scattato = True
+            else:
+                if membri_d2_finestra >= 8:
+                    trigger_pioggia_scattato = True
+
+            # 2. CALCOLO DELLA PERCENTUALE MATEMATICA sull'ora esatta per stimare il picco
+            spaghi_d2 = [dati_eps_d2[k][j] for k in dati_eps_d2 if k.startswith('precipitation_member')]
+            pct_d2 = percentuale_superamento(spaghi_d2, 1.0)
+            
+            if ch2_disponibile:
+                spaghi_ch2 = [dati_eps_ch2[k][j] for k in dati_eps_ch2 if k.startswith('precipitation_member')]
+                pct_ch2 = percentuale_superamento(spaghi_ch2, 1.0)
+                prob_media_ora = (pct_d2 + pct_ch2) / 2
+            else:
+                prob_media_ora = pct_d2
+                
+            if prob_media_ora > max_pct_media:
+                max_pct_media = prob_media_ora
+                
+        # Approviamo la percentuale solo se il sistema ha superato l'esame del trigger
+        if trigger_pioggia_scattato:
+            max_prob_pioggia = int(round(max_pct_media))
 
     return {
-        "ieri_stress": valuta_stress(bil_ieri), "ieri_p": p_ieri, "ieri_e": e_ieri,
-        "oggi_stress": valuta_stress(bil_oggi), "oggi_p": p_oggi, "oggi_e": e_oggi, "oggi_avviso": avviso_sera,
-        "domani_stress": valuta_stress(bil_domani), "domani_p": p_domani, "domani_e": e_domani,
-        "dopo_stress": valuta_stress(bil_dopo), "dopo_p": p_dopo, "dopo_e": e_dopo,
-        "data_reset": data_reset_manuale, "oggi_str": oggi_str, "ieri_str": ieri_str
+        "stress_oggi": valuta_stress(bil_oggi_fine_giornata),
+        "stress_domani": valuta_stress(bil_domani),
+        "ha_bagnato_ieri": "Sì" if ha_bagnato_ieri else "No",
+        "ha_bagnato_oggi": "Sì" if ha_bagnato_oggi else "No",
+        "probabilita_pioggia": max_prob_pioggia
     }
-
-def genera_messaggio(d):
-    nota_reset = ""
-    if d["data_reset"] in [d["ieri_str"], d["oggi_str"]]:
-        nota_reset = "\n*(Storico bilanciato: irrigazione manuale registrata)*\n"
-    
-    messaggio = f"""**BOLLETTINO SUOLO**
-Rivoli (TO)
-{nota_reset}
-**STORICO RECENTE:**
-Ieri
-Stato: {d['ieri_stress']}
-- Pioggia caduta: {d['ieri_p']:.1f} mm
-- Evaporazione avvenuta: {d['ieri_e']:.1f} mm
-
-Oggi (fino alle 19:00)
-Stato: {d['oggi_stress']}{d['oggi_avviso']}
-- Pioggia caduta: {d['oggi_p']:.1f} mm
-- Evaporazione avvenuta: {d['oggi_e']:.1f} mm
-
-**PREVISIONI:**
-Domani
-Stato previsto: {d['domani_stress']}
-- Pioggia prevista: {d['domani_p']:.1f} mm
-- Evaporazione prevista: {d['domani_e']:.1f} mm
-
-Dopodomani
-Stato previsto: {d['dopo_stress']}
-- Pioggia prevista: {d['dopo_p']:.1f} mm
-- Evaporazione prevista: {d['dopo_e']:.1f} mm"""
-    
-    return messaggio
-
-def invia_telegram(messaggio, token, chat_id):
-    if not token or not chat_id:
-        print("Token o Chat ID mancanti.")
-        return
-
-    tastiera = {
-        "inline_keyboard": [
-            [{"text": "Ho bagnato l'orto! (Azzera)", "callback_data": "reset_idrico"}]
-        ]
-    }
-
-    try:
-        requests.post(f"https://api.telegram.org/bot{token}/sendMessage", 
-                      data={"chat_id": chat_id, "text": messaggio, "parse_mode": "Markdown", "reply_markup": json.dumps(tastiera)})
-        print("Bollettino agrometeorologico inviato con successo!")
-    except Exception as e:
-        print(f"Errore invio Telegram: {e}")
 
 def main():
     token = os.getenv("TELEGRAM_TOKEN")
@@ -278,10 +272,40 @@ def main():
     if token:
         controlla_pulsante_telegram(token)
 
+    print("Calcolo dati del bilancio idrico in corso...")
     dati = calcola_dati_orto()
-    messaggio = genera_messaggio(dati)
-    print(messaggio)
-    invia_telegram(messaggio, token, chat_id)
+    
+    testo_per_ia = f"""
+    - Stress Idrico Stimato (a fine giornata odierna): {dati['stress_oggi']}
+    - Stress Idrico Previsto (Domani a fine giornata): {dati['stress_domani']}
+    - L'utente ha segnalato di aver innaffiato l'orto IERI? {dati['ha_bagnato_ieri']}
+    - L'utente ha segnalato di aver innaffiato l'orto OGGI? {dati['ha_bagnato_oggi']}
+    - Probabilità massima stimata dai modelli ensemble di temporali/rovesci tra stasera e domani sera: {dati['probabilita_pioggia']}%
+    """
+    
+    print("Elaborazione del bollettino tramite Groq AI...")
+    bollettino_ai = interpella_groq(testo_per_ia)
+    
+    # Intestazione grafica per Telegram
+    messaggio_finale = f"🌱 <b>BOLLETTINO ORTO E SUOLO</b>\n\n{bollettino_ai}"
+    
+    if token and chat_id:
+        if bollettino_ai.startswith("Errore"):
+            print(f"Blocco l'invio su Telegram a causa di un errore API: {bollettino_ai}")
+        else:
+            tastiera = {
+                "inline_keyboard": [
+                    [{"text": "💦 Ho bagnato l'orto! (Azzera siccità)", "callback_data": "reset_idrico"}]
+                ]
+            }
+            try:
+                requests.post(f"https://api.telegram.org/bot{token}/sendMessage", 
+                              data={"chat_id": chat_id, "text": messaggio_finale, "parse_mode": "HTML", "reply_markup": json.dumps(tastiera)})
+                print("Bollettino agrometeorologico inviato con successo!")
+            except Exception as e:
+                print(f"Errore invio Telegram: {e}")
+    else:
+        print("\n" + messaggio_finale)
 
 if __name__ == "__main__":
     main()
