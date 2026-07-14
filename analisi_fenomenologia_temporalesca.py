@@ -67,13 +67,17 @@ def get_finestre_innesco_ensemble():
         
         orari = dati_d2.get('hourly', {}).get('time', [])
         
-        def conta_membri_sopra_soglia(hourly_data, indice_ora, soglia):
+        def conta_membri_sopra_soglia(hourly_data, indice_ora, soglia, tolleranza_ore=1):
             if not hourly_data: return 0
             count = 0
             for key, lst in hourly_data.items():
-                if key.startswith("precipitation_member") and indice_ora < len(lst):
-                    val = lst[indice_ora]
-                    if val is not None and val >= soglia:
+                # Analizziamo solo le chiavi dei singoli membri
+                if key.startswith("precipitation_member"):
+                    # Calcoliamo la fine della finestra (massimo tolleranza_ore)
+                    fine_finestra = min(indice_ora + tolleranza_ore, len(lst))
+                    
+                    # Il membro conta come "1" se supera la soglia in ALMENO UNA delle ore del lasso temporale
+                    if any(lst[j] is not None and lst[j] >= soglia for j in range(indice_ora, fine_finestra)):
                         count += 1
             return count
 
@@ -92,25 +96,24 @@ def get_finestre_innesco_ensemble():
             for i, time_str in enumerate(orari):
                 dt_ora = datetime.fromisoformat(time_str)
                 if dt_start <= dt_ora <= dt_end:
-                    # Contiamo quanti scenari vedono almeno 1 mm nell'ora specifica
-                    membri_d2 = conta_membri_sopra_soglia(dati_d2.get('hourly', {}), i, 1.0)
-                    membri_ch2 = conta_membri_sopra_soglia(dati_ch2.get('hourly', {}), i, 1.0) if ch2_disponibile else 0
+                    # Trigger FORTE: verifichiamo la concordanza su una finestra scorrevole di 4 ore
+                    membri_d2_forte = conta_membri_sopra_soglia(dati_d2.get('hourly', {}), i, 1.0, tolleranza_ore=4)
+                    membri_ch2_forte = conta_membri_sopra_soglia(dati_ch2.get('hourly', {}), i, 1.0, tolleranza_ore=4) if ch2_disponibile else 0
                     
-                    # Contiamo quanti vedono un segnale debole per costruire la finestra oraria da analizzare
-                    membri_d2_deboli = conta_membri_sopra_soglia(dati_d2.get('hourly', {}), i, 0.2)
-                    membri_ch2_deboli = conta_membri_sopra_soglia(dati_ch2.get('hourly', {}), i, 0.2) if ch2_disponibile else 0
+                    # Costruzione FINESTRA DATI: continuiamo a guardare la singola ora (tolleranza_ore=1)
+                    # per estrarre i dati termodinamici (CAPE, wind shear) solo ed esattamente quando c'è segnale
+                    membri_d2_deboli = conta_membri_sopra_soglia(dati_d2.get('hourly', {}), i, 0.2, tolleranza_ore=1)
+                    membri_ch2_deboli = conta_membri_sopra_soglia(dati_ch2.get('hourly', {}), i, 0.2, tolleranza_ore=1) if ch2_disponibile else 0
 
                     if membri_d2_deboli >= 1 or membri_ch2_deboli >= 1:
                         indici_finestra.append(i)
                         
-                    # Verifica condizione di innesco forte
+                    # Verifica condizione di innesco forte (appoggiata sulla finestra di 4 ore)
                     if ch2_disponibile:
-                        # Modificato: servono almeno 3 spaghi D2 e 3 spaghi CH2
-                        if membri_d2 >= 3 and membri_ch2 >= 3: 
+                        if membri_d2_forte >= 4 and membri_ch2_forte >= 4:
                             innesco_valido = True
                     else:
-                        # Modificato: fallback a 5 spaghi D2 se CH2 è offline
-                        if membri_d2 >= 5: 
+                        if membri_d2_forte >= 6:
                             innesco_valido = True
 
             # Salviamo la finestra solo se la condizione di trigger è scattata in almeno una di queste ore
