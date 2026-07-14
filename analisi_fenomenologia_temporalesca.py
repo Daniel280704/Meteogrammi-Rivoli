@@ -156,7 +156,7 @@ def stima_grandine_python(cape, dls, lapse_rate, zero_termico):
     if cape >= 1500 and (dls >= 20 or lapse_rate >= 7.0):
         return "GROSSA (> 3-4 cm) - Supportata da forti updraft e shear marcato."
     if cape >= 1000 and dls >= 12:
-        return "MEDIA (1.5 - 3 cm) - Possibile in strutture multicellulari."
+        return "MEDIA (1.5 - 3 cm) - Possibile in structures multicellulari."
     if cape >= 500 and dls < 12:
         return "PICCOLA (< 1.5 cm) - Rapido collasso della colonna precipitante."
     return "Assente o di piccole dimensioni."
@@ -174,13 +174,13 @@ def interpella_groq(report_tecnico, giorno_str):
     {report_tecnico}
 
     REGOLE RIGOROSE:
-    1. CONDIZIONALITÀ ASSOLUTA: Inizia e mantieni sempre il discorso evidenziando l'incertezza dell'innesco (es. "Nella giornata di {giorno_str}, nel caso in cui dovesse verificarsi un temporale...", "Qualora si formassero dei rovesci..."). I temporali non sono una certezza.
+    1. CONDIZIONALITÀ ASSOLUTA E TERMINOLOGIA: Inizia e mantieni sempre il discorso evidenziando l'incertezza dell'innesco (es. "Nella giornata di {giorno_str}, nel caso in cui dovesse verificarsi un temporale..."). I temporali non sono una certezza. PARLA ESCLUSIVAMENTE DI "TEMPORALI", È SEVERAMENTE VIETATO USARE LA PAROLA "ROVESCI".
     2. LINGUAGGIO PER L'UTENTE MEDIO: Non usare ASSOLUTAMENTE NESSUN termine tecnico. Zero riferimenti a CAPE, DLS, LLS, Lapse Rate, Vettore Traslazione, Base Nubi, ecc.
     3. FOTOGRAFA LE CRITICITÀ PRINCIPALI traducendo i dati in fenomeni pratici:
        - Se il "Vettore Traslazione" è basso (< 20 km/h), evidenzia il rischio di "locali allagamenti" o "possibili accumuli ingenti per precipitazioni stazionarie".
        - Se la "Stima grandine" del modello indica "MEDIA" o "GROSSA", segnala esplicitamente il rischio di "grandine anche di grosse dimensioni".
        - Se il "Deep Layer Shear" è alto (> 20 m/s) o l'umidità a 700hPa è bassa (< 50%), avvisa della possibilità di "forti raffiche di vento lineare (downburst)".
-    4. SINTESI ESTREMA: Scrivi un solo paragrafo fluido di massimo due/tre frasi. Esempio di tono: "Nella giornata di mercoledì, nel caso in cui dovessero svilupparsi dei temporali, le criticità maggiori potrebbero derivare da locali allagamenti per le piogge stazionarie e possibili forti raffiche di vento."
+    4. SINTESI ESTREMA: Scrivi un solo paragrafo fluido di massimo due/tre frasi. Esempio di tono: "Nella giornata di mercoledì, nel caso in cui dovessero svilupparsi dei temporali, le criticità maggiori potrebbero derivare da locali allagamenti per le precipitazioni stazionarie e possibili forti raffiche di vento."
     5. NESSUNA raccomandazione comportamentale o di protezione civile, limitati a descrivere puramente l'intensità dei fenomeni attesi.
     """
 
@@ -196,12 +196,11 @@ def interpella_groq(report_tecnico, giorno_str):
 
 def main():
     FILE_LOCK = "lock_temporali.txt"
-    oggi_str_lock = datetime.now().strftime("%Y-%m-%d")
+    oggi_str_formato_iso = datetime.now().strftime("%Y-%m-%d")
     
-    # CONTROLLO SEMAFORO: Se ha già inviato un'analisi oggi, si stoppa subito[cite: 3]
     if os.path.exists(FILE_LOCK):
         with open(FILE_LOCK, "r") as f:
-            if f.read().strip() == oggi_str_lock:
+            if f.read().strip() == oggi_str_formato_iso:
                 print("✅ Analisi temporali già inviata oggi. Esecuzione terminata per evitare spam.")
                 sys.exit(0)
 
@@ -215,8 +214,7 @@ def main():
     print("Scaricamento profili termodinamici deterministici ICON-D2...")
     hourly = fetch_dati_convezione_d2()
     
-    # Usiamo il tag HTML <b> coerentemente con il prompt pulito di Groq
-    messaggio_telegram = "🌩 <b>AVVISO PER POSSIBILI TEMPORALI</b>\n\n"
+    messaggio_telegram = ""
     inviato_almeno_uno = False
 
     for data_str, indici_ore in finestre_attive.items():
@@ -301,24 +299,35 @@ def main():
         print(f"[{giorno_formattato}] Elaborazione responso diagnostico tramite Groq...")
         responso = interpella_groq(report_dati, giorno_formattato)
         
-        messaggio_telegram += f"📅 <b>Target: {giorno_formattato}</b>\n\n{responso}\n\n➖➖➖➖➖➖➖➖➖➖\n\n"
+        # Gestione differenziata Avviso/Pre-Avviso in base al giorno
+        if data_str == oggi_str_formato_iso:
+            titolo_blocco = "🌩 <b>AVVISO PER POSSIBILI TEMPORALI</b>"
+        else:
+            titolo_blocco = "🌩 <b>PRE-AVVISO PER POSSIBILI TEMPORALI</b>"
+        
+        messaggio_telegram += f"{titolo_blocco}\n📅 <b>Target: {giorno_formattato}</b>\n\n{responso}\n\n➖➖➖➖➖➖➖➖➖➖\n\n"
         inviato_almeno_uno = True
 
-    # Invio Telegram condizionato all'effettivo innesco di almeno un giorno valido[cite: 3]
     if inviato_almeno_uno:
+        # Rimuove l'ultimo separatore tratteggiato per una formattazione più pulita
+        messaggio_telegram = messaggio_telegram.rstrip("➖➖➖➖➖➖➖➖➖➖\n\n")
+        
         token = os.getenv("TELEGRAM_TOKEN")
         chat_id = os.getenv("TELEGRAM_CHAT_ID")
         
         if token and chat_id:
-            res = requests.post(f"https://api.telegram.org/bot{token}/sendMessage", 
-                          data={"chat_id": chat_id, "text": messaggio_telegram, "parse_mode": "HTML"})
-            if res.status_code == 200:
-                print("Analisi convettiva inviata con successo su Telegram!")
-                # SCRITTURA DEL SEMAFORO: Salva lo sblocco avvenuto[cite: 3]
-                with open(FILE_LOCK, "w") as f:
-                    f.write(oggi_str_lock)
+            # Lucchetto di sicurezza: previene l'invio di stringhe di errore
+            if "Errore AI Groq:" in messaggio_telegram:
+                print("Blocco l'invio su Telegram a causa di un errore API nel responso.")
             else:
-                print(f"Errore invio Telegram: {res.text}")
+                res = requests.post(f"https://api.telegram.org/bot{token}/sendMessage", 
+                              data={"chat_id": chat_id, "text": messaggio_telegram, "parse_mode": "HTML"})
+                if res.status_code == 200:
+                    print("Analisi convettiva inviata con successo su Telegram!")
+                    with open(FILE_LOCK, "w") as f:
+                        f.write(oggi_str_formato_iso)
+                else:
+                    print(f"Errore invio Telegram: {res.text}")
         else:
             print(messaggio_telegram)
     else:
