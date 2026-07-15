@@ -1,4 +1,4 @@
-name: ENS Rivoli
+name: ENS (Grafici e Excel) Rivoli
 
 on:
   schedule:
@@ -27,20 +27,23 @@ jobs:
         # Aggiunti pandas e openpyxl per la gestione del file Excel
         run: pip install requests matplotlib pandas openpyxl
 
-      - name: Generazione Grafici, Dati Excel e Invio a Telegram
+      - name: Generazione Grafici, Excel e Invio a Telegram
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          # Generazione dei grafici (spaghetti)
+          # --- IMMAGINI DEGLI SPAGHETTI ---
           python ens_rivoli.py --modello ch1
           python ens_rivoli.py --modello ch2
           python ens_rivoli.py --modello d2
           python ens_rivoli.py --modello arome
           python ens_rivoli.py --modello icon2i
           
-          # Generazione e invio della tabella Excel
-          python ens_excel.py
+          # --- DATI TABELLARI EXCEL ---
+          # (AROME e ICON-2I verranno automaticamente ignorati dallo script perché non ensemble)
+          python ens_excel.py --modello ch1
+          python ens_excel.py --modello ch2
+          python ens_excel.py --modello d2
 
       # QUESTO PASSAGGIO SALVA L'IMPRONTA DIGITALE PER LA VOLTA DOPO
       - name: Salva stato modelli per anti-spam
