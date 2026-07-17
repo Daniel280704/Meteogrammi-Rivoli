@@ -20,10 +20,9 @@ FILE_HASH = "ultimo_hash_ecmwf_spaghetti.txt"
 FILENAME = "ecmwf_spaghetti_profile.png"
 
 def verifica_dati_nuovi(hourly_data: dict) -> bool:
-    """Verifica l'hash usando il membro 1 come campione."""
-    sample = hourly_data.get("temperature_850hPa_member01", [])
-    if not sample and hourly_data:
-        sample = list(hourly_data.values())[0]
+    """Verifica l'hash cercando dinamicamente la prima chiave membro disponibile."""
+    sample_key = next((k for k in hourly_data.keys() if 'temperature_850hPa_member' in k), None)
+    sample = hourly_data.get(sample_key, []) if sample_key else []
         
     stringa_dati = str(sample).encode('utf-8')
     hash_attuale = hashlib.md5(stringa_dati).hexdigest()
@@ -45,8 +44,9 @@ def main():
     
     URL = "https://ensemble-api.open-meteo.com/v1/ensemble"
     
-    # Le variabili base che vogliamo tracciare
-    base_vars = [
+    # URL CORTO: Richiediamo solo le variabili base. 
+    # Usando 'ecmwf_ifs025_ensemble', Open-Meteo invierà tutti i 51 membri in automatico.
+    var_list = [
         "temperature_850hPa",
         "temperature_500hPa",
         "geopotential_height_850hPa",
@@ -54,21 +54,15 @@ def main():
         "precipitation"
     ]
 
-    # --- FIX: Generazione automatica dei 51 membri per ogni variabile ---
-    hourly_vars = []
-    for var in base_vars:
-        for i in range(1, 52): # Da member01 a member51
-            hourly_vars.append(f"{var}_member{i:02d}")
-
     params = {
         "latitude": LATITUDE,
         "longitude": LONGITUDE,
-        "hourly": ",".join(hourly_vars), # Unisce le ~255 variabili in una singola stringa
+        "hourly": ",".join(var_list),
         "models": "ecmwf_ifs025_ensemble",
         "timezone": "Europe/Rome",
         "forecast_days": 14
     }
-    headers = {"User-Agent": "MeteoBot-Spaghetti/2.0"}
+    headers = {"User-Agent": "MeteoBot-Spaghetti/3.0"}
 
     try:
         response = requests.get(URL, params=params, headers=headers)
@@ -76,7 +70,7 @@ def main():
         data = response.json()
         hourly = data.get("hourly", {})
     except Exception as e:
-        print(f"❌ Errore durante il download dei dati: {e}", file=sys.stderr)
+        print(f"❌ Errore API: {e}", file=sys.stderr)
         sys.exit(1)
 
     if not verifica_dati_nuovi(hourly):
@@ -86,7 +80,7 @@ def main():
     print("ℹ️ Trovati nuovi dati per ECMWF Ensemble. Generazione del grafico in corso...")
     times = pd.to_datetime(hourly.get("time"))
 
-    # Funzione per estrarre tutti i membri in una singola matrice
+    # FIX FONDAMENTALE: Cerchiamo '_member' (senza l'underscore finale)
     def extract_members(var_name):
         member_keys = [k for k in hourly.keys() if k.startswith(f"{var_name}_member")]
         if not member_keys:
@@ -95,7 +89,7 @@ def main():
         members_data = [hourly[k] for k in member_keys]
         return np.array(members_data, dtype=float)
 
-    # Estrazione matrici
+    # Estrazione matrici (51 membri per ogni variabile)
     t850_members = extract_members("temperature_850hPa")
     z850_members = extract_members("geopotential_height_850hPa")
     t500_members = extract_members("temperature_500hPa")
@@ -134,7 +128,7 @@ def main():
     lines_1, labels_1 = ax1.get_legend_handles_labels()
     lines_1_z, labels_1_z = ax1_z.get_legend_handles_labels()
     ax1.legend(lines_1 + lines_1_z, labels_1 + labels_1_z, loc='upper left', fontsize=10)
-    ax1.set_title("Profilo 850 hPa - Tutti i 51 Membri Ensemble ECMWF", fontsize=13, fontweight='bold')
+    ax1.set_title("Profilo 850 hPa - Tutti i membri Ensemble ECMWF", fontsize=13, fontweight='bold')
 
     # ====================================================
     # 2. SUBPLOT 500 hPa (Temperatura & Geopotenziale)
@@ -165,7 +159,7 @@ def main():
     lines_2, labels_2 = ax2.get_legend_handles_labels()
     lines_2_z, labels_2_z = ax2_z.get_legend_handles_labels()
     ax2.legend(lines_2 + lines_2_z, labels_2 + labels_2_z, loc='upper left', fontsize=10)
-    ax2.set_title("Profilo 500 hPa - Tutti i 51 Membri Ensemble ECMWF", fontsize=13, fontweight='bold')
+    ax2.set_title("Profilo 500 hPa - Tutti i membri Ensemble ECMWF", fontsize=13, fontweight='bold')
 
     # ====================================================
     # 3. SUBPLOT PRECIPITAZIONI
@@ -184,7 +178,7 @@ def main():
     ax3.set_ylim(bottom=0)
     ax3.grid(True, linestyle='--', alpha=0.5)
     ax3.legend(loc='upper left', fontsize=10)
-    ax3.set_title("Precipitazioni Orarie - Tutti i 51 Membri Ensemble ECMWF", fontsize=13, fontweight='bold')
+    ax3.set_title("Precipitazioni Orarie - Tutti i membri Ensemble ECMWF", fontsize=13, fontweight='bold')
 
     # Formattazione Asse X
     titolo_in_basso = "Meteogramma Spaghetti ECMWF Ensemble IFS 0.25° (14 Giorni)   |   Data e Ora (Fuso Orario Locale)"
@@ -210,9 +204,9 @@ def main():
         ora_esecuzione = datetime.now().strftime("%d/%m/%Y alle %H:%M")
 
         caption = (
-            "🍝 <b>Meteogramma Spaghetti ECMWF IFS (51 Membri - 14 Giorni)</b>\n"
+            "🍝 <b>Meteogramma Spaghetti ECMWF IFS (14 Giorni)</b>\n"
             "• <b>850 hPa & 500 hPa:</b> Temp (continua) e Geopotenziale (tratteggiata).\n"
-            "• <b>Tratti sottili:</b> tutti i 51 scenari dell'Ensemble.\n"
+            "• <b>Tratti sottili:</b> tutti i singoli scenari dell'Ensemble.\n"
             "• <b>Linea spessa:</b> Media dell'Ensemble (ENS Mean).\n\n"
             f"<i>Aggiornato il {ora_esecuzione}</i>"
         )
