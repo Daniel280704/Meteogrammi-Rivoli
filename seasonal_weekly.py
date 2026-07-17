@@ -11,6 +11,7 @@ import warnings
 
 warnings.filterwarnings('ignore', category=RuntimeWarning)
 
+# Coordinate esatte - Rivoli
 LATITUDE = 45.07347491421504
 LONGITUDE = 7.543461388723449
 
@@ -42,7 +43,7 @@ def main():
         "timezone": "Europe/Rome",
         "forecast_days": 45
     }
-    headers = {"User-Agent": "MeteoBot-Seasonal/1.0"}
+    headers = {"User-Agent": "MeteoBot-Seasonal/1.1"}
 
     try:
         response = requests.get(URL, params=params, headers=headers)
@@ -68,30 +69,37 @@ def main():
     fig, axs = plt.subplots(3, 1, figsize=(12, 14), sharex=True)
     
     def plot_anomaly_bars(ax, times, anomalies, is_precip=False):
-        # Colori dinamici in base al segno dell'anomalia
         if is_precip:
-            colors = ['#2ca02c' if val >= 0 else '#8c564b' for val in anomalies] # Verde per surplus, Marrone per deficit
+            colors = ['#2ca02c' if val >= 0 else '#8c564b' for val in anomalies]
             ylabel = "Anomalia Prec. (mm)"
         else:
-            colors = ['#d62728' if val >= 0 else '#1f77b4' for val in anomalies] # Rosso per caldo, Blu per freddo
+            colors = ['#d62728' if val >= 0 else '#1f77b4' for val in anomalies]
             ylabel = "Anomalia Temp. (°C)"
             
-        ax.bar(times, anomalies, color=colors, width=5, alpha=0.8, edgecolor='black', linewidth=0.5)
-        ax.axhline(0, color='black', linewidth=1.5, linestyle='--') # Linea dello zero (Media)
+        # FIX ALLINEAMENTO E LARGHEZZA: 
+        # width=7 assicura che copra l'intera settimana
+        # align='edge' assicura che parta esattamente dal punto (il lunedì)
+        ax.bar(times, anomalies, color=colors, width=7, align='edge', alpha=0.8, edgecolor='black', linewidth=0.5)
+        ax.axhline(0, color='black', linewidth=1.5, linestyle='--') 
         ax.set_ylabel(ylabel, fontsize=11, fontweight='bold')
         ax.grid(True, linestyle=':', alpha=0.6)
         
-        # Etichette di testo sopra/sotto le barre
+        # FIX OFFSET TESTO: Calcolo dinamico in base al valore massimo, così non esce mai dal grafico
+        v_max = np.nanmax(np.abs(anomalies)) if not np.isnan(anomalies).all() else 1
+        if v_max == 0: v_max = 1
+        
         for i, val in enumerate(anomalies):
             if not np.isnan(val):
-                offset = 0.5 if not is_precip else 5
+                offset = v_max * 0.05 # L'offset è sempre il 5% del valore massimo presente
                 y_pos = val + offset if val >= 0 else val - offset
                 va = 'bottom' if val >= 0 else 'top'
-                ax.text(times[i], y_pos, f"{val:+.1f}", ha='center', va=va, fontsize=9, fontweight='bold', color=colors[i])
                 
-        # Padding dinamico asse Y
-        v_max = np.nanmax(np.abs(anomalies)) if not np.isnan(anomalies).all() else 1
-        pad = v_max * 0.3 if v_max != 0 else 1
+                # Visto che la barra parte dal lunedì (edge), calcoliamo il centro per mettere il testo (lunedì + 3.5 giorni)
+                center_x = times[i] + pd.Timedelta(days=3.5)
+                
+                ax.text(center_x, y_pos, f"{val:+.1f}", ha='center', va=va, fontsize=9, fontweight='bold', color=colors[i])
+                
+        pad = v_max * 0.25
         ax.set_ylim(-v_max - pad, v_max + pad)
 
     # 1. T-Max Anomaly
@@ -106,9 +114,15 @@ def main():
     plot_anomaly_bars(axs[2], times, prec_anom, is_precip=True)
     axs[2].set_title("Anomalia Settimanale PRECIPITAZIONI", fontsize=12, fontweight='bold')
 
-    axs[-1].set_xlabel("Settimana di riferimento (Data di inizio)", fontsize=12, fontweight='bold', labelpad=10)
-    axs[-1].xaxis.set_major_locator(mdates.DayLocator(interval=7))
+    axs[-1].set_xlabel("Settimana di riferimento (da Lunedì a Lunedì)", fontsize=12, fontweight='bold', labelpad=10)
+    
+    # FIX GRIGLIA: Forziamo i tick verticali esattamente sui Lunedì
+    axs[-1].xaxis.set_major_locator(mdates.WeekdayLocator(byweekday=mdates.MO))
     axs[-1].xaxis.set_major_formatter(mdates.DateFormatter('%d %b'))
+    
+    # Forziamo i limiti visivi in modo che l'ultima barra da 7 giorni si veda tutta
+    axs[-1].set_xlim(times[0], times[-1] + pd.Timedelta(days=7))
+    
     plt.xticks(rotation=45)
     plt.tight_layout()
     plt.savefig(FILENAME, dpi=200, bbox_inches='tight')
@@ -121,7 +135,7 @@ def main():
         ora = datetime.now().strftime("%d/%m/%Y alle %H:%M")
         caption = (
             "📊 <b>Anomalie Settimanali (Proiezione 45 Giorni)</b>\n"
-            "Scostamenti previsti rispetto alla media climatologica di riferimento.\n"
+            "Scostamenti previsti rispetto alla media climatologica.\n"
             "• <b>Temperature:</b> Rosso (sopra media) / Blu (sotto media).\n"
             "• <b>Precipitazioni:</b> Verde (surplus) / Marrone (deficit).\n\n"
             f"<i>Aggiornato il {ora}</i>"
