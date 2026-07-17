@@ -9,7 +9,7 @@ import matplotlib.dates as mdates
 from datetime import datetime
 import warnings
 
-# Disabilitiamo i warning per eventuali fette di NaN durante il calcolo delle medie
+# Disabilitiamo i warning per i calcoli su array temporaneamente vuoti
 warnings.filterwarnings('ignore', category=RuntimeWarning)
 
 # Coordinate esatte - Rivoli
@@ -20,9 +20,8 @@ FILE_HASH = "ultimo_hash_ecmwf_spaghetti.txt"
 FILENAME = "ecmwf_spaghetti_profile.png"
 
 def verifica_dati_nuovi(hourly_data: dict) -> bool:
-    """Verifica se i dati scaricati sono cambiati rispetto all'ultima esecuzione."""
-    # Utilizziamo il membro 0 della T850 come campione per l'hash
-    sample = hourly_data.get("temperature_850hPa_member_0", [])
+    """Verifica l'hash usando il membro 1 come campione."""
+    sample = hourly_data.get("temperature_850hPa_member01", [])
     if not sample and hourly_data:
         sample = list(hourly_data.values())[0]
         
@@ -46,7 +45,8 @@ def main():
     
     URL = "https://ensemble-api.open-meteo.com/v1/ensemble"
     
-    var_list = [
+    # Le variabili base che vogliamo tracciare
+    base_vars = [
         "temperature_850hPa",
         "temperature_500hPa",
         "geopotential_height_850hPa",
@@ -54,15 +54,21 @@ def main():
         "precipitation"
     ]
 
+    # --- FIX: Generazione automatica dei 51 membri per ogni variabile ---
+    hourly_vars = []
+    for var in base_vars:
+        for i in range(1, 52): # Da member01 a member51
+            hourly_vars.append(f"{var}_member{i:02d}")
+
     params = {
         "latitude": LATITUDE,
         "longitude": LONGITUDE,
-        "hourly": ",".join(var_list),
+        "hourly": ",".join(hourly_vars), # Unisce le ~255 variabili in una singola stringa
         "models": "ecmwf_ifs025_ensemble",
         "timezone": "Europe/Rome",
         "forecast_days": 14
     }
-    headers = {"User-Agent": "MeteoBot-Spaghetti/1.0"}
+    headers = {"User-Agent": "MeteoBot-Spaghetti/2.0"}
 
     try:
         response = requests.get(URL, params=params, headers=headers)
@@ -80,13 +86,12 @@ def main():
     print("ℹ️ Trovati nuovi dati per ECMWF Ensemble. Generazione del grafico in corso...")
     times = pd.to_datetime(hourly.get("time"))
 
-    # Funzione per estrarre tutti i membri di una variabile in una matrice (membri x tempo)
+    # Funzione per estrarre tutti i membri in una singola matrice
     def extract_members(var_name):
-        member_keys = [k for k in hourly.keys() if k.startswith(f"{var_name}_member_")]
+        member_keys = [k for k in hourly.keys() if k.startswith(f"{var_name}_member")]
         if not member_keys:
             return None
-        # Ordiniamo per numero di membro
-        member_keys.sort(key=lambda x: int(x.split("_member_")[-1]))
+        member_keys.sort()
         members_data = [hourly[k] for k in member_keys]
         return np.array(members_data, dtype=float)
 
@@ -105,21 +110,17 @@ def main():
     # ====================================================
     ax1 = axs[0]
     ax1_z = ax1.twinx()
-    color_850 = "#d62728"  # Rosso per livello 850 hPa
+    color_850 = "#d62728" 
 
     if t850_members is not None:
-        # Singoli membri Temperatura (linea continua sottile)
         for i in range(t850_members.shape[0]):
             ax1.plot(times, t850_members[i], color=color_850, alpha=0.15, linewidth=0.8, linestyle='-')
-        # Media Ensemble Temperatura (linea spessa)
         t850_mean = np.nanmean(t850_members, axis=0)
         ax1.plot(times, t850_mean, color=color_850, linewidth=2.8, linestyle='-', label='Media Temp 850 hPa (°C)')
 
     if z850_members is not None:
-        # Singoli membri Geopotenziale (linea tratteggiata sottile)
         for i in range(z850_members.shape[0]):
             ax1_z.plot(times, z850_members[i], color=color_850, alpha=0.12, linewidth=0.8, linestyle='--')
-        # Media Ensemble Geopotenziale (linea spessa tratteggiata)
         z850_mean = np.nanmean(z850_members, axis=0)
         ax1_z.plot(times, z850_mean, color=color_850, linewidth=2.8, linestyle='--', label='Media Geop 850 hPa (m)')
 
@@ -140,21 +141,17 @@ def main():
     # ====================================================
     ax2 = axs[1]
     ax2_z = ax2.twinx()
-    color_500 = "#1f77b4"  # Blu per livello 500 hPa
+    color_500 = "#1f77b4" 
 
     if t500_members is not None:
-        # Singoli membri Temperatura
         for i in range(t500_members.shape[0]):
             ax2.plot(times, t500_members[i], color=color_500, alpha=0.15, linewidth=0.8, linestyle='-')
-        # Media Ensemble Temperatura
         t500_mean = np.nanmean(t500_members, axis=0)
         ax2.plot(times, t500_mean, color=color_500, linewidth=2.8, linestyle='-', label='Media Temp 500 hPa (°C)')
 
     if z500_members is not None:
-        # Singoli membri Geopotenziale
         for i in range(z500_members.shape[0]):
             ax2_z.plot(times, z500_members[i], color=color_500, alpha=0.12, linewidth=0.8, linestyle='--')
-        # Media Ensemble Geopotenziale
         z500_mean = np.nanmean(z500_members, axis=0)
         ax2_z.plot(times, z500_mean, color=color_500, linewidth=2.8, linestyle='--', label='Media Geop 500 hPa (m)')
 
@@ -174,13 +171,11 @@ def main():
     # 3. SUBPLOT PRECIPITAZIONI
     # ====================================================
     ax3 = axs[2]
-    color_precip = "#2ca02c"  # Verde per precipitazioni
+    color_precip = "#2ca02c" 
 
     if precip_members is not None:
-        # Singoli membri Precipitazioni
         for i in range(precip_members.shape[0]):
             ax3.plot(times, precip_members[i], color=color_precip, alpha=0.2, linewidth=0.8, linestyle='-')
-        # Media Ensemble Precipitazioni
         precip_mean = np.nanmean(precip_members, axis=0)
         ax3.plot(times, precip_mean, color="#0a5c0a", linewidth=2.5, linestyle='-', label='Media Precipitazioni Orarie (mm/h)')
 
