@@ -33,27 +33,25 @@ def verifica_dati_nuovi(daily_data: dict) -> bool:
     return is_nuovo
 
 def main():
-    print("Scaricamento dati ECMWF a 14 giorni (Precipitazioni + CAPE) in corso...")
+    print("Scaricamento dati ECMWF a 14 giorni (Precipitazioni + CAPE Max) in corso...")
     
     URL = "https://ensemble-api.open-meteo.com/v1/ensemble"
     
     params = {
         "latitude": LATITUDE,
         "longitude": LONGITUDE,
-        "daily": "rain_sum,snowfall_sum",
-        "hourly": "cape,cape_spread",
+        "daily": "rain_sum,snowfall_sum,cape_max",
         "models": "ecmwf_ifs025_ensemble_mean",
         "timezone": "Europe/Rome",
         "forecast_days": 14
     }
-    headers = {"User-Agent": "MeteoBot-EnsemblePlotter-Precip/2.0"}
+    headers = {"User-Agent": "MeteoBot-EnsemblePlotter-Precip/3.0"}
 
     try:
         response = requests.get(URL, params=params, headers=headers)
         response.raise_for_status()
         data = response.json()
         daily = data.get("daily", {})
-        hourly = data.get("hourly", {})
     except Exception as e:
         print(f"❌ Errore durante il download dei dati: {e}", file=sys.stderr)
         sys.exit(1)
@@ -66,29 +64,20 @@ def main():
     print("ℹ️ Trovati nuovi dati per ECMWF. Generazione del grafico in corso...")
     
     # Estrazione Asse Temporale
-    # Per i dati giornalieri (che segnano le 00:00), aggiungiamo 12 ore per centrare la barra al centro della giornata
+    # Aggiungiamo 12 ore per centrare il marker e la barra perfettamente a metà della giornata
     daily_times = pd.to_datetime(daily.get("time")) + pd.Timedelta(hours=12)
-    hourly_times = pd.to_datetime(hourly.get("time"))
 
-    # Estrazione Dati Giornalieri (Precipitazioni e Neve non hanno spread nella chiamata API)
+    # Estrazione Dati Giornalieri
     rain_sum = np.array([np.nan if v is None else v for v in daily.get("rain_sum", [])], dtype=float)
     snow_sum = np.array([np.nan if v is None else v for v in daily.get("snowfall_sum", [])], dtype=float)
-
-    # Estrazione Dati Orari (CAPE)
-    cape_mean = np.array([np.nan if v is None else v for v in hourly.get("cape", [])], dtype=float)
-    cape_spread_raw = hourly.get("cape_spread", [])
-    cape_spread = np.array([np.nan if v is None else v for v in cape_spread_raw], dtype=float)
-    
-    # Il CAPE per definizione fisica non può scendere sotto zero J/kg
-    cape_min = np.clip(cape_mean - cape_spread, 0, None)
-    cape_max = cape_mean + cape_spread
+    cape_max = np.array([np.nan if v is None else v for v in daily.get("cape_max", [])], dtype=float)
 
     # --- CONFIGURAZIONE GRAFICI ---
     # Due riquadri: 1 per Pioggia+CAPE, 1 per la Neve. 
     fig, axs = plt.subplots(2, 1, figsize=(13, 12), sharex=True, gridspec_kw={'height_ratios': [2, 1.2]})
 
     # ==========================================
-    # 1. GRAFICO PIOGGIA (Barre) + CAPE (Linea)
+    # 1. GRAFICO PIOGGIA (Barre) + CAPE MAX (Linea e Marker)
     # ==========================================
     ax_rain = axs[0]
     ax_cape = ax_rain.twinx()
@@ -103,14 +92,13 @@ def main():
     ax_rain.tick_params(axis='y', labelcolor='#1f77b4')
     ax_rain.grid(True, linestyle='--', alpha=0.4)
 
-    # Disegniamo il CAPE come linea continua
-    ax_cape.plot(hourly_times, cape_mean, color='purple', linewidth=2.2, label='CAPE Medio Orario')
-    ax_cape.fill_between(hourly_times, cape_min, cape_max, color='purple', alpha=0.15)
+    # Disegniamo il CAPE Max come linea continua con marker
+    ax_cape.plot(daily_times, cape_max, color='purple', marker='o', markersize=6, linewidth=2.2, label='CAPE Max Medio')
 
     # Calcolo tetto massimo asse CAPE
     c_max = np.nanmax(cape_max) if not np.isnan(cape_max).all() else 0
     ax_cape.set_ylim(bottom=0, top=max(c_max * 1.3, 50.0))
-    ax_cape.set_ylabel('CAPE (J/kg)', fontsize=12, color='purple', fontweight='bold')
+    ax_cape.set_ylabel('CAPE Max (J/kg)', fontsize=12, color='purple', fontweight='bold')
     ax_cape.tick_params(axis='y', labelcolor='purple')
 
     # Unione Legende per il primo riquadro
@@ -126,7 +114,7 @@ def main():
     
     ax_snow.bar(daily_times, snow_sum, color='#00bfff', alpha=0.7, width=0.8, label='Nevicata Cumulata Giornaliera')
     
-    # Calcolo tetto massimo asse Neve con logica anti-errore estiva
+    # Calcolo tetto massimo asse Neve con logica anti-errore per NaN
     s_max = np.nanmax(snow_sum) if not np.isnan(snow_sum).all() else 0
     ax_snow.set_ylim(bottom=0, top=max(s_max * 1.3, 0.5))
     
@@ -141,8 +129,7 @@ def main():
     
     axs[-1].xaxis.set_major_locator(mdates.DayLocator())
     axs[-1].xaxis.set_major_formatter(mdates.DateFormatter('%d %b'))
-    axs[-1].xaxis.set_minor_locator(mdates.HourLocator(byhour=[12]))
-    axs[-1].grid(which="minor", axis="x", alpha=0.3, linestyle=':')
+    axs[-1].grid(which="major", axis="x", alpha=0.3, linestyle=':')
 
     plt.xticks(rotation=45)
     plt.tight_layout()
@@ -161,8 +148,7 @@ def main():
         caption = (
             "🌩 <b>Analisi Precipitativa & Convettiva ECMWF (14 Giorni)</b>\n"
             "• <b>Istogrammi:</b> Accumuli pluviometrici e nevosi totali giornalieri.\n"
-            "• <b>Linea Viola:</b> Andamento orario del CAPE (energia per i temporali).\n"
-            "<i>Aree ombreggiate: spread dell'ensemble.</i>\n\n"
+            "• <b>Linea Viola:</b> CAPE Max Medio previsto nella giornata.\n\n"
             f"<i>Aggiornato il {ora_esecuzione}</i>"
         )
         
