@@ -136,6 +136,40 @@ def main():
     axs[-1].set_xlabel("Data (Fuso Orario Locale)   |   Analisi ECMWF AIFS (14gg)", fontsize=13, fontweight='bold', labelpad=15)
     plt.tight_layout()
     plt.savefig(FILENAME, dpi=200, bbox_inches='tight')
+    print(f"Grafico salvato come {FILENAME}")
 
-    # Invio Telegram (logica invariata)
-    # ...
+    # --- INVIO A TELEGRAM ---
+    token = os.getenv("TELEGRAM_TOKEN")
+    chat_id = os.getenv("TELEGRAM_CHAT_ID")
+    
+    if token and chat_id:
+        print("Invio grafico su Telegram in corso...")
+        url_telegram = f"https://api.telegram.org/bot{token}/sendPhoto"
+        ora_esecuzione = datetime.now().strftime("%d/%m/%Y alle %H:%M")
+        
+        caption = (
+            "📈 <b>Meteogramma Termodinamico ECMWF (14 Giorni)</b>\n"
+            "Temperature (linea continua) e Altezze Geopotenziali / Dew Point (linea tratteggiata).\n"
+            "<i>Aree colorate: deviazione standard (spread) dell'ensemble.</i>\n\n"
+            f"<i>Aggiornato il {ora_esecuzione}</i>"
+        )
+        
+        try:
+            with open(FILENAME, "rb") as photo:
+                res = requests.post(
+                    url_telegram,
+                    data={"chat_id": chat_id, "caption": caption, "parse_mode": "HTML"},
+                    files={"photo": photo}
+                )
+                
+                if res.status_code == 200:
+                    print("✅ Grafico inviato con successo su Telegram!")
+                else:
+                    print(f"⚠️ Errore API Telegram ({res.status_code}): {res.text}")
+        except Exception as e:
+            print(f"❌ Eccezione durante l'invio a Telegram: {e}")
+    else:
+        print("ℹ️ Credenziali Telegram (Token o Chat ID) mancanti, skip invio.")
+
+if __name__ == "__main__":
+    main()
