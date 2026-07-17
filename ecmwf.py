@@ -37,7 +37,6 @@ def main():
     
     URL = "https://ensemble-api.open-meteo.com/v1/ensemble"
     
-    # Lista variabili aggiornata con il dew point a 2m
     var_list = [
         "geopotential_height_925hPa", "geopotential_height_925hPa_spread",
         "geopotential_height_850hPa", "geopotential_height_850hPa_spread",
@@ -61,7 +60,7 @@ def main():
         "timezone": "Europe/Rome",
         "forecast_days": 14
     }
-    headers = {"User-Agent": "MeteoBot-EnsemblePlotter/6.2"}
+    headers = {"User-Agent": "MeteoBot-EnsemblePlotter/6.3"}
 
     try:
         response = requests.get(URL, params=params, headers=headers)
@@ -98,7 +97,6 @@ def main():
     fig, axs = plt.subplots(6, 1, figsize=(13, 26), sharex=True)
 
     levels_config = [
-        # 2m ora ha il flag has_dew abilitato
         {"lvl": "2m",     "color": "#d62728", "has_z": False, "has_dew": True}, 
         {"lvl": "925hPa", "color": "#ff7f0e", "has_z": True,  "has_dew": False},  
         {"lvl": "850hPa", "color": "#8c564b", "has_z": True,  "has_dew": False},  
@@ -113,6 +111,10 @@ def main():
         lvl = config["lvl"]
         base_color = config["color"]
         
+        # Liste per raccogliere i limiti di tutte le variabili su questo asse Y
+        valid_y_mins = []
+        valid_y_maxs = []
+        
         # --- PLOT TEMPERATURA (Asse Y sinistro, Linea Continua) ---
         t_mean, t_min, t_max = get_stats(f"temperature_{lvl}")
         if t_mean is not None:
@@ -120,26 +122,36 @@ def main():
             ax.fill_between(times, t_min, t_max, color=base_color, alpha=0.15)
             plotted_something = True
             
-            # Inizializziamo i limiti base sulla temperatura
-            abs_y_min, abs_y_max = np.nanmin(t_min), np.nanmax(t_max)
+            valid_y_mins.append(np.nanmin(t_min))
+            valid_y_maxs.append(np.nanmax(t_max))
             
             # --- PLOT DEW POINT (Solo a 2m, stesso asse Y, Linea Tratteggiata) ---
             if config.get("has_dew"):
                 d_mean, d_min, d_max = get_stats(f"dew_point_{lvl}")
                 if d_mean is not None:
                     ax.plot(times, d_mean, label=f'Dew Point {lvl}', color=base_color, linewidth=2.2, linestyle='--')
-                    # Usiamo un alpha leggero (0.08) come facciamo per il geopotenziale
                     ax.fill_between(times, d_min, d_max, color=base_color, alpha=0.08) 
                     
-                    # Estendiamo i limiti dell'asse verso il basso per ospitare il Dew Point
-                    abs_y_min = min(abs_y_min, np.nanmin(d_min))
-                    abs_y_max = max(abs_y_max, np.nanmax(d_max))
+                    # Aggiungiamo i limiti del dew point alla lista per il calcolo dell'escursione termica totale
+                    valid_y_mins.append(np.nanmin(d_min))
+                    valid_y_maxs.append(np.nanmax(d_max))
             
+            # Estraiamo i minimi e massimi assoluti combinati
+            abs_y_min = min(valid_y_mins)
+            abs_y_max = max(valid_y_maxs)
             y_range = abs_y_max - abs_y_min if (abs_y_max - abs_y_min) > 0 else 5.0
             
-            # Padding inferiore enorme solo se c'è un geopotenziale in arrivo sull'asse destro
-            pad_bottom = y_range * 1.2 if config["has_z"] else y_range * 0.1
-            ax.set_ylim(abs_y_min - pad_bottom, abs_y_max + y_range * 0.1)
+            # Adattamento scalabile: 
+            # Se c'è l'altezza di geopotenziale (has_z), lasciamo il fondo del grafico vuoto (padding enorme: 1.3)
+            # Se siamo a 2m (solo temperature), usiamo un padding di "respiro" del 15% simmetrico per far vedere bene i picchi
+            if config["has_z"]:
+                pad_bottom = y_range * 1.3
+                pad_top = y_range * 0.15
+            else:
+                pad_bottom = y_range * 0.15
+                pad_top = y_range * 0.15
+                
+            ax.set_ylim(abs_y_min - pad_bottom, abs_y_max + pad_top)
             
         ax.set_ylabel(f"Temperatura °C ({lvl})", fontsize=11, color=base_color)
         ax.tick_params(axis='y', labelcolor=base_color)
@@ -157,12 +169,12 @@ def main():
                 abs_z_min, abs_z_max = np.nanmin(z_min), np.nanmax(z_max)
                 z_range = abs_z_max - abs_z_min if (abs_z_max - abs_z_min) > 0 else 50.0
                 
+                # Per il geopotenziale, spazio vuoto in alto per non sovrapporsi alle temperature
                 ax2.set_ylim(abs_z_min - z_range * 0.1, abs_z_max + z_range * 1.8)
                 
             ax2.set_ylabel(f"Altezza Geop. m ({lvl})", fontsize=11, color=base_color)
             ax2.tick_params(axis='y', labelcolor=base_color)
             
-            # Uniamo le legende
             lines_1, labels_1 = ax.get_legend_handles_labels()
             lines_2, labels_2 = ax2.get_legend_handles_labels()
             ax.legend(lines_1 + lines_2, labels_1 + labels_2, loc='upper right', fontsize=9, ncol=2)
@@ -199,7 +211,7 @@ def main():
         caption = (
             "📈 <b>Meteogramma Termodinamico ECMWF (14 Giorni)</b>\n"
             "Temperature (linea continua) e Altezze Geopotenziali / Dew Point (linea tratteggiata).\n"
-            "<i>Aree colorate: deviazione standard (spread) dell'ensemble.</i>\n\n"
+            "<i>Aree colorate: spread dell'ensemble (IFS 0.25°).</i>\n\n"
             f"<i>Aggiornato il {ora_esecuzione}</i>"
         )
         
