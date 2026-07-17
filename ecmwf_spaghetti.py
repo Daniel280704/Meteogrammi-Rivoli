@@ -20,7 +20,6 @@ FILE_HASH = "ultimo_hash_ecmwf_spaghetti.txt"
 FILENAME = "ecmwf_spaghetti_profile.png"
 
 def verifica_dati_nuovi(hourly_data: dict) -> bool:
-    """Verifica l'hash cercando dinamicamente la prima chiave membro disponibile."""
     sample_key = next((k for k in hourly_data.keys() if 'temperature_850hPa_member' in k), None)
     sample = hourly_data.get(sample_key, []) if sample_key else []
         
@@ -44,8 +43,6 @@ def main():
     
     URL = "https://ensemble-api.open-meteo.com/v1/ensemble"
     
-    # URL CORTO: Richiediamo solo le variabili base. 
-    # Usando 'ecmwf_ifs025_ensemble', Open-Meteo invierà tutti i 51 membri in automatico.
     var_list = [
         "temperature_850hPa",
         "temperature_500hPa",
@@ -62,7 +59,7 @@ def main():
         "timezone": "Europe/Rome",
         "forecast_days": 14
     }
-    headers = {"User-Agent": "MeteoBot-Spaghetti/3.0"}
+    headers = {"User-Agent": "MeteoBot-Spaghetti/3.1"}
 
     try:
         response = requests.get(URL, params=params, headers=headers)
@@ -80,7 +77,6 @@ def main():
     print("ℹ️ Trovati nuovi dati per ECMWF Ensemble. Generazione del grafico in corso...")
     times = pd.to_datetime(hourly.get("time"))
 
-    # FIX FONDAMENTALE: Cerchiamo '_member' (senza l'underscore finale)
     def extract_members(var_name):
         member_keys = [k for k in hourly.keys() if k.startswith(f"{var_name}_member")]
         if not member_keys:
@@ -98,6 +94,22 @@ def main():
 
     # Creazione dei 3 Subplot
     fig, axs = plt.subplots(3, 1, figsize=(14, 18), sharex=True)
+
+    def applica_spaziatura_asimmetrica(ax_t, ax_z, t_mat, z_mat):
+        """Forza la Temperatura nel 45% superiore e il Geopotenziale nel 45% inferiore del grafico."""
+        if t_mat is not None:
+            t_min, t_max = np.nanmin(t_mat), np.nanmax(t_mat)
+            r_t = t_max - t_min if (t_max - t_min) > 0 else 5.0
+            # Il limite superiore prende il massimo + 5% di margine
+            # Il limite inferiore scende molto sotto i dati reali per confinarli in alto
+            ax_t.set_ylim((t_max + 0.05 * r_t) - (r_t / 0.45), t_max + 0.05 * r_t)
+
+        if z_mat is not None:
+            z_min, z_max = np.nanmin(z_mat), np.nanmax(z_mat)
+            r_z = z_max - z_min if (z_max - z_min) > 0 else 50.0
+            # Il limite inferiore prende il minimo - 5% di margine
+            # Il limite superiore sale molto sopra i dati reali per confinarli in basso
+            ax_z.set_ylim(z_min - 0.05 * r_z, (z_min - 0.05 * r_z) + (r_z / 0.45))
 
     # ====================================================
     # 1. SUBPLOT 850 hPa (Temperatura & Geopotenziale)
@@ -117,6 +129,8 @@ def main():
             ax1_z.plot(times, z850_members[i], color=color_850, alpha=0.12, linewidth=0.8, linestyle='--')
         z850_mean = np.nanmean(z850_members, axis=0)
         ax1_z.plot(times, z850_mean, color=color_850, linewidth=2.8, linestyle='--', label='Media Geop 850 hPa (m)')
+
+    applica_spaziatura_asimmetrica(ax1, ax1_z, t850_members, z850_members)
 
     ax1.set_ylabel("Temperatura 850 hPa (°C)", fontsize=11, color=color_850, fontweight='bold')
     ax1.tick_params(axis='y', labelcolor=color_850)
@@ -148,6 +162,8 @@ def main():
             ax2_z.plot(times, z500_members[i], color=color_500, alpha=0.12, linewidth=0.8, linestyle='--')
         z500_mean = np.nanmean(z500_members, axis=0)
         ax2_z.plot(times, z500_mean, color=color_500, linewidth=2.8, linestyle='--', label='Media Geop 500 hPa (m)')
+
+    applica_spaziatura_asimmetrica(ax2, ax2_z, t500_members, z500_members)
 
     ax2.set_ylabel("Temperatura 500 hPa (°C)", fontsize=11, color=color_500, fontweight='bold')
     ax2.tick_params(axis='y', labelcolor=color_500)
@@ -205,7 +221,7 @@ def main():
 
         caption = (
             "🍝 <b>Meteogramma Spaghetti ECMWF IFS (14 Giorni)</b>\n"
-            "• <b>850 hPa & 500 hPa:</b> Temp (continua) e Geopotenziale (tratteggiata).\n"
+            "• <b>850 hPa & 500 hPa:</b> Temp (alto, continua) e Geopotenziale (basso, tratteggiata).\n"
             "• <b>Tratti sottili:</b> tutti i singoli scenari dell'Ensemble.\n"
             "• <b>Linea spessa:</b> Media dell'Ensemble (ENS Mean).\n\n"
             f"<i>Aggiornato il {ora_esecuzione}</i>"
