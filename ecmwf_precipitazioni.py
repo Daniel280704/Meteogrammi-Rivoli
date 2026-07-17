@@ -115,12 +115,14 @@ def main():
             ax.fill_between(times, min_val, max_val, color=base_color, alpha=0.25)
             plotted_something = True
             
-            # Troviamo il picco massimo assoluto
-            abs_max = np.nanmax(max_val)
-            
-            # Se la previsione è 0 assoluto per 14 giorni, usiamo un tetto minimo di sicurezza
-            # altrimenti l'asse si schiaccia tra 0 e 0 dando errore visivo.
-            y_top = max(abs_max * 1.2, config["ylim_min_ceil"])
+            # --- FIX: Controllo di sicurezza per i valori NaN (es. assenza totale di neve in estate) ---
+            if np.isnan(max_val).all():
+                # Se l'array è composto solo da NaN, forziamo il limite Y al valore di default
+                y_top = config["ylim_min_ceil"]
+            else:
+                # Altrimenti, calcoliamo il picco massimo reale
+                abs_max = np.nanmax(max_val)
+                y_top = max(abs_max * 1.2, config["ylim_min_ceil"])
             
             ax.set_ylim(bottom=0, top=y_top)
             
