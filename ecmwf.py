@@ -8,28 +8,26 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 from datetime import datetime
 
-# Coordinate
-LATITUDE = 45.069
-LONGITUDE = 7.517
+# Coordinate esatte estratte dalla chiamata API
+LATITUDE = 45.07347491421504
+LONGITUDE = 7.543461388723449
 
 FILE_HASH = "ultimo_hash_ecmwf.txt"
 FILENAME = "ecmwf_thermal_profile.png"
 
 def verifica_dati_nuovi(hourly_data: dict) -> bool:
     """Verifica se i dati scaricati sono cambiati rispetto all'ultima esecuzione."""
-    # Creiamo un hash basato sulla temperatura del membro 0 per rilevare se il run è nuovo
-    stringa_dati = str(hourly_data.get("temperature_2m_member_0", [])).encode('utf-8')
+    # La chiave base ora è direttamente 'temperature_2m' (che rappresenta la media)
+    stringa_dati = str(hourly_data.get("temperature_2m", [])).encode('utf-8')
     hash_attuale = hashlib.md5(stringa_dati).hexdigest()
     
     is_nuovo = True
     if os.path.exists(FILE_HASH):
         with open(FILE_HASH, "r") as f:
-            hash_salvato = f.read().strip()
-            # Se l'hash corrisponde a quello vecchio, i dati non sono cambiati
-            if hash_attuale == hash_salvato:
+            if f.read().strip() == hash_attuale:
                 is_nuovo = False
 
-    # Salviamo sempre il nuovo hash se i dati sono cambiati
+    # Aggiorna sempre l'hash se ci sono dati freschi
     if is_nuovo:
         with open(FILE_HASH, "w") as f:
             f.write(hash_attuale)
@@ -37,22 +35,25 @@ def verifica_dati_nuovi(hourly_data: dict) -> bool:
     return is_nuovo
 
 def main():
-    print("Scaricamento dati ensemble ECMWF in corso...")
-    VARIABLES = [
-        "temperature_2m", "temperature_925hPa", "temperature_850hPa",
-        "temperature_700hPa", "temperature_600hPa", "temperature_500hPa",
-        "temperature_400hPa", "temperature_300hPa"
-    ]
+    print("Scaricamento dati ECMWF (Ensemble Mean & Spread) in corso...")
+    
+    # Elenco delle quote per automatizzare la costruzione dei parametri
+    LEVELS = ["2m", "925hPa", "850hPa", "700hPa", "600hPa", "500hPa", "400hPa", "300hPa"]
+    
+    VARIABLES = []
+    for lvl in LEVELS:
+        VARIABLES.append(f"temperature_{lvl}")
+        VARIABLES.append(f"temperature_{lvl}_spread")
 
     URL = "https://ensemble-api.open-meteo.com/v1/ensemble"
     params = {
         "latitude": LATITUDE,
         "longitude": LONGITUDE,
         "hourly": ",".join(VARIABLES),
-        "models": "ecmwf_ifs025",
+        "models": "ecmwf_ifs025_ensemble_mean",
         "timezone": "Europe/Rome"
     }
-    headers = {"User-Agent": "MeteoBot-EnsemblePlotter/1.0"}
+    headers = {"User-Agent": "MeteoBot-EnsemblePlotter/3.0"}
 
     try:
         response = requests.get(URL, params=params, headers=headers)
@@ -63,7 +64,6 @@ def main():
         print(f"❌ Errore durante il download dei dati: {e}", file=sys.stderr)
         sys.exit(1)
 
-    # Verifica se i dati sono effettivamente nuovi
     is_nuovo = verifica_dati_nuovi(hourly)
     
     if not is_nuovo:
@@ -74,14 +74,27 @@ def main():
 
     times = pd.to_datetime(hourly.get("time"))
 
-    def get_ensemble_stats(var_name):
-        members_data = [hourly[f"{var_name}_member_{i}"] for i in range(51) if f"{var_name}_member_{i}" in hourly]
-        if not members_data:
+    def get_stats(var_name):
+        """Recupera la media e calcola i limiti dello spread per l'area ombreggiata."""
+        mean_data = hourly.get(var_name)
+        spread_data = hourly.get(f"{var_name}_spread")
+        
+        if not mean_data or not spread_data:
+            print(f"⚠️ Dati mancanti nell'API per la variabile: {var_name}")
             return None, None, None
-        arr = np.array(members_data)
-        return np.mean(arr, axis=0), np.min(arr, axis=0), np.max(arr, axis=0)
+            
+        # Convertiamo i None in NaN (per sicurezza) e creiamo gli array numpy
+        mean_arr = np.array([np.nan if v is None else v for v in mean_data], dtype=float)
+        spread_arr = np.array([np.nan if v is None else v for v in spread_data], dtype=float)
+        
+        # Lo spread calcolato da Open-Meteo è la deviazione standard.
+        # Definiamo l'area di incertezza come Media ± Spread
+        min_arr = mean_arr - spread_arr
+        max_arr = mean_arr + spread_arr
+        
+        return mean_arr, min_arr, max_arr
 
-    # --- CREAZIONE GRAFICO ---
+    # --- CREAZIONE DEL GRAFICO ---
     fig, axs = plt.subplots(4, 1, figsize=(12, 18), sharex=True)
     fig.suptitle("Analisi Ensemble ECMWF - Profilo Termico Verticale", fontsize=16, fontweight='bold', y=0.92)
 
@@ -96,20 +109,28 @@ def main():
          {"var": "temperature_300hPa", "label": "300 hPa", "color": "#17becf"})
     ]
 
+    plotted_something = False
+
     for ax, (line1, line2) in zip(axs, plot_groups):
-        mean1, min1, max1 = get_ensemble_stats(line1["var"])
+        mean1, min1, max1 = get_stats(line1["var"])
         if mean1 is not None:
             ax.plot(times, mean1, label=f'Media {line1["label"]}', color=line1["color"], linewidth=2)
             ax.fill_between(times, min1, max1, color=line1["color"], alpha=0.15, label=f'Spread {line1["label"]}')
+            plotted_something = True
             
-        mean2, min2, max2 = get_ensemble_stats(line2["var"])
+        mean2, min2, max2 = get_stats(line2["var"])
         if mean2 is not None:
             ax.plot(times, mean2, label=f'Media {line2["label"]}', color=line2["color"], linewidth=2)
             ax.fill_between(times, min2, max2, color=line2["color"], alpha=0.15, label=f'Spread {line2["label"]}')
+            plotted_something = True
             
         ax.set_ylabel("Temperatura (°C)", fontsize=11)
         ax.grid(True, linestyle='--', alpha=0.5)
         ax.legend(loc='upper right', fontsize=9, ncol=2)
+
+    if not plotted_something:
+        print("❌ ERRORE CRITICO: Non ho potuto tracciare nessuna linea. Dati API non validi.")
+        sys.exit(1)
 
     axs[-1].set_xlabel("Data e Ora (Fuso Orario Locale)", fontsize=11)
     axs[-1].xaxis.set_major_formatter(mdates.DateFormatter('%d %b %H:%M'))
@@ -129,8 +150,9 @@ def main():
         ora_esecuzione = datetime.now().strftime("%d/%m/%Y alle %H:%M")
         caption = (
             "📈 <b>Aggiornamento Profilo Termico Verticale ECMWF</b>\n"
-            "Analisi ensemble (51 membri) da 2m a 300hPa.\n\n"
-            f"<i>Aggiornamento del {ora_esecuzione}</i>"
+            "Analisi ensemble da 2m a 300hPa.\n"
+            "<i>Le aree colorate indicano lo spread (deviazione standard) attorno alla media.</i>\n\n"
+            f"<i>Aggiornato il {ora_esecuzione}</i>"
         )
         
         with open(FILENAME, "rb") as photo:
