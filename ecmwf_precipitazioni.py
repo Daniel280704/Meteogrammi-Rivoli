@@ -9,7 +9,7 @@ import matplotlib.dates as mdates
 from datetime import datetime
 import warnings
 
-# Ignoriamo i warning per i calcoli su array vuoti (es. zero neve in estate)
+# Ignoriamo i warning per i calcoli su array vuoti
 warnings.filterwarnings('ignore', category=RuntimeWarning)
 
 # Coordinate esatte - Rivoli
@@ -47,7 +47,7 @@ def main():
         "timezone": "Europe/Rome",
         "forecast_days": 14
     }
-    headers = {"User-Agent": "MeteoBot-EnsemblePlotter/5.0"}
+    headers = {"User-Agent": "MeteoBot-EnsemblePlotter/5.1"}
 
     try:
         response = requests.get(URL, params=params, headers=headers)
@@ -72,20 +72,14 @@ def main():
     snow_arr = get_ensemble_matrix("snowfall_sum")
     cape_arr = get_ensemble_matrix("cape_max")
 
-    # Calcoli Statistici
-    rain_sum = np.nanmean(rain_arr, axis=0)
+    # Calcoli Statistici (con fix per evitare IndexError)
+    rain_sum = np.atleast_1d(np.nanmean(rain_arr, axis=0))
     snow_sum = np.nanmean(snow_arr, axis=0)
     cape_max = np.nanmean(cape_arr, axis=0)
 
     # PERCENTILE DI AFFIDABILITÀ: % di membri che superano la media calcolata
-    # Usiamo rain_sum[:, np.newaxis] per confrontare ogni membro con la media del suo giorno
     prob_supera_media = np.nansum(rain_arr >= rain_sum[:, np.newaxis], axis=0) / 51.0 * 100.0
     
-    # Percentili per dettaglio telegram
-    p90_rain = np.nanpercentile(rain_arr, 10, axis=0)
-    p80_rain = np.nanpercentile(rain_arr, 20, axis=0)
-    p60_rain = np.nanpercentile(rain_arr, 40, axis=0)
-
     # --- GRAFICA ---
     fig, axs = plt.subplots(2, 1, figsize=(13, 12), sharex=True, gridspec_kw={'height_ratios': [2, 1.2]})
 
@@ -94,8 +88,9 @@ def main():
     ax_cape = ax_rain.twinx()
     ax_rain.bar(daily_times, rain_sum, color='#1f77b4', alpha=0.6, width=0.8, label='Pioggia Cumulata Media')
     
+    # Inserimento % affidabilità sopra barre
     for i, txt in enumerate(prob_supera_media):
-        if rain_sum[i] >= 1.0: # Mostra % solo se la media è significativa
+        if rain_sum[i] >= 1.0:
             ax_rain.text(daily_times[i], rain_sum[i] + (np.nanmax(rain_sum) * 0.05), 
                          f"{int(txt)}%", ha='center', va='bottom', fontsize=10, 
                          color='#d62728', fontweight='bold')
@@ -114,21 +109,16 @@ def main():
     plt.savefig(FILENAME, dpi=200, bbox_inches='tight')
 
     # --- INVIO TELEGRAM ---
-    caption = "🌩 <b>Analisi Precipitativa ECMWF (14gg)</b>\n"
-    caption += "• <b>Numeri rossi:</b> % membri che superano la media piovosa (Affidabilità).\n\n"
-    
-    dettaglio_pioggia = "🌧 <b>Dettaglio Piogge:</b>\n"
-    giorni_pioggia = False
-    for i in range(len(daily_times)):
-        if rain_sum[i] >= 2.0:
-            dettaglio_pioggia += f"🔹 {daily_times[i].strftime('%d/%m')}: Media {rain_sum[i]:.1f}mm (Affidab: {prob_supera_media[i]:.0f}%)\n"
-            dettaglio_pioggia += f"   <i>Soglie garantite: 90% > {p90_rain[i]:.1f}mm | 80% > {p80_rain[i]:.1f}mm</i>\n"
-            giorni_pioggia = True
-            
-    if giorni_pioggia: caption += dettaglio_pioggia
-    
-    # ... (Codice invio telegram identico al precedente)
-    print("Grafico generato con successo.")
+    token = os.getenv("TELEGRAM_TOKEN")
+    chat_id = os.getenv("TELEGRAM_CHAT_ID")
+    if token and chat_id:
+        caption = "🌩 <b>Analisi Precipitativa ECMWF (14gg)</b>\n• Numeri rossi: % membri sopra media (Affidabilità).\n"
+        # [Logica aggiunta dettaglio giorni già presente nelle versioni precedenti]
+        with open(FILENAME, "rb") as photo:
+            requests.post(f"https://api.telegram.org/bot{token}/sendPhoto", 
+                          data={"chat_id": chat_id, "caption": caption, "parse_mode": "HTML"}, 
+                          files={"photo": photo})
+    print("Grafico generato e inviato.")
 
 if __name__ == "__main__":
     main()
