@@ -59,7 +59,7 @@ def main():
         "timezone": "Europe/Rome",
         "forecast_days": 14
     }
-    headers = {"User-Agent": "MeteoBot-EnsemblePlotter/6.0"}
+    headers = {"User-Agent": "MeteoBot-EnsemblePlotter/6.1"}
 
     try:
         response = requests.get(URL, params=params, headers=headers)
@@ -94,9 +94,8 @@ def main():
 
     # --- CONFIGURAZIONE GRAFICI ---
     fig, axs = plt.subplots(6, 1, figsize=(13, 26), sharex=True)
-    fig.suptitle("Analisi ECMWF (14 Giorni) - Temperatura e Geopotenziale", fontsize=18, fontweight='bold', y=0.91)
+    # IL TITOLO SUPERIORE È STATO RIMOSSO DA QUI
 
-    # Definiamo un singolo colore armonico per ciascuna quota
     levels_config = [
         {"lvl": "2m",     "color": "#d62728", "has_z": False}, # Rosso
         {"lvl": "925hPa", "color": "#ff7f0e", "has_z": True},  # Arancione
@@ -136,9 +135,8 @@ def main():
             z_mean, z_min, z_max = get_stats(f"geopotential_height_{lvl}")
             
             if z_mean is not None:
-                # Utilizziamo lo stesso colore, ma tratteggiato
                 l2 = ax2.plot(times, z_mean, label=f'Geopotenziale {lvl}', color=base_color, linewidth=2.2, linestyle='--')
-                ax2.fill_between(times, z_min, z_max, color=base_color, alpha=0.08) # Ombreggiatura più leggera
+                ax2.fill_between(times, z_min, z_max, color=base_color, alpha=0.08)
                 
                 # Calcolo dei limiti asimmetrici per spingere il geopotenziale IN BASSO
                 abs_z_min, abs_z_max = np.nanmin(z_min), np.nanmax(z_max)
@@ -160,15 +158,18 @@ def main():
         print("❌ ERRORE CRITICO: Non ho potuto tracciare nessuna linea. Dati API non validi.")
         sys.exit(1)
 
-    # Formattazione dell'asse X (14 Giorni)
-    axs[-1].set_xlabel("Data (Fuso Orario Locale)", fontsize=11)
+    # Formattazione dell'asse X (14 Giorni) + NUOVO TITOLO IN BASSO
+    titolo_in_basso = "Analisi ECMWF (14 Giorni) - Temperatura e Geopotenziale   |   Data e Ora (Fuso Orario Locale)"
+    axs[-1].set_xlabel(titolo_in_basso, fontsize=13, fontweight='bold', labelpad=15)
+    
     axs[-1].xaxis.set_major_locator(mdates.DayLocator())
     axs[-1].xaxis.set_major_formatter(mdates.DateFormatter('%d %b'))
     axs[-1].xaxis.set_minor_locator(mdates.HourLocator(byhour=[12]))
     axs[-1].grid(which="minor", axis="x", alpha=0.3, linestyle=':')
 
     plt.xticks(rotation=45)
-    plt.tight_layout(rect=[0, 0, 1, 0.96])
+    # Rimosso il rect dalla tight_layout per sfruttare l'area fino in cima
+    plt.tight_layout()
     plt.savefig(FILENAME, dpi=200, bbox_inches='tight')
     print(f"Grafico salvato come {FILENAME}")
 
