@@ -12,13 +12,12 @@ from datetime import datetime
 LATITUDE = 45.07347491421504
 LONGITUDE = 7.543461388723449
 
-# File hash e nome immagine dedicati per non sovrascrivere lo script termico
-FILE_HASH = "ultimo_hash_ecmwf_precip.txt"
-FILENAME = "ecmwf_precip_profile.png"
+FILE_HASH = "ultimo_hash_ecmwf_precip_cape.txt"
+FILENAME = "ecmwf_precip_cape_profile.png"
 
-def verifica_dati_nuovi(hourly_data: dict) -> bool:
-    """Verifica se i dati scaricati sono cambiati rispetto all'ultima esecuzione."""
-    stringa_dati = str(hourly_data.get("rain", [])).encode('utf-8')
+def verifica_dati_nuovi(daily_data: dict) -> bool:
+    """Verifica l'hash basandosi sulle precipitazioni giornaliere."""
+    stringa_dati = str(daily_data.get("rain_sum", [])).encode('utf-8')
     hash_attuale = hashlib.md5(stringa_dati).hexdigest()
     
     is_nuovo = True
@@ -34,109 +33,110 @@ def verifica_dati_nuovi(hourly_data: dict) -> bool:
     return is_nuovo
 
 def main():
-    print("Scaricamento dati ECMWF a 14 giorni (Precipitazioni) in corso...")
+    print("Scaricamento dati ECMWF a 14 giorni (Precipitazioni + CAPE) in corso...")
     
     URL = "https://ensemble-api.open-meteo.com/v1/ensemble"
     
-    var_list = [
-        "rain", "rain_spread",
-        "snowfall", "snowfall_spread",
-        "snow_depth", "snow_depth_spread"
-    ]
-
     params = {
         "latitude": LATITUDE,
         "longitude": LONGITUDE,
-        "hourly": ",".join(var_list),
+        "daily": "rain_sum,snowfall_sum",
+        "hourly": "cape,cape_spread",
         "models": "ecmwf_ifs025_ensemble_mean",
         "timezone": "Europe/Rome",
         "forecast_days": 14
     }
-    headers = {"User-Agent": "MeteoBot-EnsemblePlotter-Precip/1.0"}
+    headers = {"User-Agent": "MeteoBot-EnsemblePlotter-Precip/2.0"}
 
     try:
         response = requests.get(URL, params=params, headers=headers)
         response.raise_for_status()
         data = response.json()
+        daily = data.get("daily", {})
         hourly = data.get("hourly", {})
     except Exception as e:
         print(f"❌ Errore durante il download dei dati: {e}", file=sys.stderr)
         sys.exit(1)
 
-    is_nuovo = verifica_dati_nuovi(hourly)
+    is_nuovo = verifica_dati_nuovi(daily)
     if not is_nuovo:
-        print("ℹ️ Nessun aggiornamento trovato per le precipitazioni ECMWF. Elaborazione fermata.")
+        print("ℹ️ Nessun aggiornamento trovato per ECMWF. Elaborazione fermata.")
         sys.exit(0)
         
-    print("ℹ️ Trovati nuovi dati per ECMWF (Precipitazioni). Generazione del grafico in corso...")
-    times = pd.to_datetime(hourly.get("time"))
+    print("ℹ️ Trovati nuovi dati per ECMWF. Generazione del grafico in corso...")
+    
+    # Estrazione Asse Temporale
+    # Per i dati giornalieri (che segnano le 00:00), aggiungiamo 12 ore per centrare la barra al centro della giornata
+    daily_times = pd.to_datetime(daily.get("time")) + pd.Timedelta(hours=12)
+    hourly_times = pd.to_datetime(hourly.get("time"))
 
-    def get_stats(var_name):
-        mean_data = hourly.get(var_name)
-        if not mean_data:
-            return None, None, None
-            
-        mean_arr = np.array([np.nan if v is None else v for v in mean_data], dtype=float)
-        
-        if f"{var_name}_spread" in hourly:
-            spread_data = hourly.get(f"{var_name}_spread")
-            spread_arr = np.array([np.nan if v is None else v for v in spread_data], dtype=float)
-            
-            # REGOLE FISICHE: Le precipitazioni non possono essere inferiori a 0.
-            # Clip taglia i valori negativi e li fissa a 0.
-            min_arr = np.clip(mean_arr - spread_arr, 0, None)
-            max_arr = mean_arr + spread_arr
-            return mean_arr, min_arr, max_arr
-        else:
-            return mean_arr, mean_arr, mean_arr
+    # Estrazione Dati Giornalieri (Precipitazioni e Neve non hanno spread nella chiamata API)
+    rain_sum = np.array([np.nan if v is None else v for v in daily.get("rain_sum", [])], dtype=float)
+    snow_sum = np.array([np.nan if v is None else v for v in daily.get("snowfall_sum", [])], dtype=float)
+
+    # Estrazione Dati Orari (CAPE)
+    cape_mean = np.array([np.nan if v is None else v for v in hourly.get("cape", [])], dtype=float)
+    cape_spread_raw = hourly.get("cape_spread", [])
+    cape_spread = np.array([np.nan if v is None else v for v in cape_spread_raw], dtype=float)
+    
+    # Il CAPE per definizione fisica non può scendere sotto zero J/kg
+    cape_min = np.clip(cape_mean - cape_spread, 0, None)
+    cape_max = cape_mean + cape_spread
 
     # --- CONFIGURAZIONE GRAFICI ---
-    # 3 subplot (Pioggia, Nevicata, Manto Nevoso). Altezza 14 pollici.
-    fig, axs = plt.subplots(3, 1, figsize=(13, 14), sharex=True)
+    # Due riquadri: 1 per Pioggia+CAPE, 1 per la Neve. 
+    fig, axs = plt.subplots(2, 1, figsize=(13, 12), sharex=True, gridspec_kw={'height_ratios': [2, 1.2]})
 
-    levels_config = [
-        {"var": "rain",       "label": "Pioggia (mm)",         "color": "#1f77b4", "ylim_min_ceil": 1.0},
-        {"var": "snowfall",   "label": "Nevicata (cm/h)",      "color": "#00bfff", "ylim_min_ceil": 0.5},
-        {"var": "snow_depth", "label": "Manto Nevoso (m)",     "color": "#708090", "ylim_min_ceil": 0.1}
-    ]
+    # ==========================================
+    # 1. GRAFICO PIOGGIA (Barre) + CAPE (Linea)
+    # ==========================================
+    ax_rain = axs[0]
+    ax_cape = ax_rain.twinx()
 
-    plotted_something = False
+    # Disegniamo la pioggia come istogramma
+    ax_rain.bar(daily_times, rain_sum, color='#1f77b4', alpha=0.6, width=0.8, label='Pioggia Cumulata Giornaliera')
+    
+    # Calcolo tetto massimo asse Pioggia
+    rain_max = np.nanmax(rain_sum) if not np.isnan(rain_sum).all() else 0
+    ax_rain.set_ylim(bottom=0, top=max(rain_max * 1.3, 2.0))
+    ax_rain.set_ylabel('Pioggia Giornaliera (mm)', fontsize=12, color='#1f77b4', fontweight='bold')
+    ax_rain.tick_params(axis='y', labelcolor='#1f77b4')
+    ax_rain.grid(True, linestyle='--', alpha=0.4)
 
-    for ax, config in zip(axs, levels_config):
-        var_name = config["var"]
-        base_color = config["color"]
-        label_text = config["label"]
-        
-        mean_val, min_val, max_val = get_stats(var_name)
-        
-        if mean_val is not None:
-            # Tracciamo la linea e riempiamo lo spread
-            ax.plot(times, mean_val, label=f'Media {label_text}', color=base_color, linewidth=2.2, linestyle='-')
-            ax.fill_between(times, min_val, max_val, color=base_color, alpha=0.25)
-            plotted_something = True
-            
-            # --- FIX: Controllo di sicurezza per i valori NaN (es. assenza totale di neve in estate) ---
-            if np.isnan(max_val).all():
-                # Se l'array è composto solo da NaN, forziamo il limite Y al valore di default
-                y_top = config["ylim_min_ceil"]
-            else:
-                # Altrimenti, calcoliamo il picco massimo reale
-                abs_max = np.nanmax(max_val)
-                y_top = max(abs_max * 1.2, config["ylim_min_ceil"])
-            
-            ax.set_ylim(bottom=0, top=y_top)
-            
-        ax.set_ylabel(label_text, fontsize=11, color=base_color, fontweight='bold')
-        ax.tick_params(axis='y', labelcolor=base_color)
-        ax.grid(True, linestyle='--', alpha=0.6)
-        ax.legend(loc='upper right', fontsize=10)
+    # Disegniamo il CAPE come linea continua
+    ax_cape.plot(hourly_times, cape_mean, color='purple', linewidth=2.2, label='CAPE Medio Orario')
+    ax_cape.fill_between(hourly_times, cape_min, cape_max, color='purple', alpha=0.15)
 
-    if not plotted_something:
-        print("❌ ERRORE CRITICO: Non ho potuto tracciare nessuna linea. Dati API non validi.")
-        sys.exit(1)
+    # Calcolo tetto massimo asse CAPE
+    c_max = np.nanmax(cape_max) if not np.isnan(cape_max).all() else 0
+    ax_cape.set_ylim(bottom=0, top=max(c_max * 1.3, 50.0))
+    ax_cape.set_ylabel('CAPE (J/kg)', fontsize=12, color='purple', fontweight='bold')
+    ax_cape.tick_params(axis='y', labelcolor='purple')
+
+    # Unione Legende per il primo riquadro
+    lines_r, labels_r = ax_rain.get_legend_handles_labels()
+    lines_c, labels_c = ax_cape.get_legend_handles_labels()
+    ax_rain.legend(lines_r + lines_c, labels_r + labels_c, loc='upper left', fontsize=10)
+
+
+    # ==========================================
+    # 2. GRAFICO NEVE (Barre)
+    # ==========================================
+    ax_snow = axs[1]
+    
+    ax_snow.bar(daily_times, snow_sum, color='#00bfff', alpha=0.7, width=0.8, label='Nevicata Cumulata Giornaliera')
+    
+    # Calcolo tetto massimo asse Neve con logica anti-errore estiva
+    s_max = np.nanmax(snow_sum) if not np.isnan(snow_sum).all() else 0
+    ax_snow.set_ylim(bottom=0, top=max(s_max * 1.3, 0.5))
+    
+    ax_snow.set_ylabel('Neve Giornaliera (cm)', fontsize=12, color='#00bfff', fontweight='bold')
+    ax_snow.tick_params(axis='y', labelcolor='#00bfff')
+    ax_snow.grid(True, linestyle='--', alpha=0.4)
+    ax_snow.legend(loc='upper left', fontsize=10)
 
     # --- FORMATTAZIONE ASSE X E TITOLO IN BASSO ---
-    titolo_in_basso = "Analisi Precipitazioni ECMWF (14 Giorni)   |   Data e Ora (Fuso Orario Locale)"
+    titolo_in_basso = "Analisi Precipitazioni & Setup Convettivo ECMWF (14 Giorni)"
     axs[-1].set_xlabel(titolo_in_basso, fontsize=13, fontweight='bold', labelpad=15)
     
     axs[-1].xaxis.set_major_locator(mdates.DayLocator())
@@ -159,9 +159,10 @@ def main():
         ora_esecuzione = datetime.now().strftime("%d/%m/%Y alle %H:%M")
         
         caption = (
-            "🌧 <b>Meteogramma Precipitazioni ECMWF (14 Giorni)</b>\n"
-            "Previsione precipitativa: Pioggia, Neve oraria e Accumulo al suolo.\n"
-            "<i>Le aree colorate indicano l'incertezza (spread) dell'ensemble.</i>\n\n"
+            "🌩 <b>Analisi Precipitativa & Convettiva ECMWF (14 Giorni)</b>\n"
+            "• <b>Istogrammi:</b> Accumuli pluviometrici e nevosi totali giornalieri.\n"
+            "• <b>Linea Viola:</b> Andamento orario del CAPE (energia per i temporali).\n"
+            "<i>Aree ombreggiate: spread dell'ensemble.</i>\n\n"
             f"<i>Aggiornato il {ora_esecuzione}</i>"
         )
         
