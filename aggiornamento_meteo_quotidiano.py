@@ -155,9 +155,9 @@ def interpella_groq(dati_testuali, oggi_str, domani_str):
     Ti fornirò i "fatti salienti" generati da algoritmi matematici.
     
     REGOLE FERREE (PENA IL FALLIMENTO):
-    1. TITOLO: Inizia ESATTAMENTE con: <b>Aggiornamento meteo di {oggi_str}</b>. Lascia TASSATIVAMENTE una sola riga vuota (usa un doppio 'a capo') tra il titolo e il primo paragrafo.
-    2. STRUTTURA E INCIPIT: Due paragrafi in totale, uno per Oggi e uno per Domani. Lascia ESATTAMENTE una sola riga vuota tra i paragrafi. INIZIA SEMPRE ogni paragrafo citando il giorno contestualizzato e la data (es. "Oggi, {oggi_str}, " oppure "Domani, {domani_str}, ").
-    3. STILE TEMPERATURE E DISAGIO CALDO: Subito dopo la data, per esprimere le temperature usa TASSATIVAMENTE questa struttura al singolare: "la temperatura minima sarà di X °C, mentre la massima raggiungerà i Y °C". Scrivi i valori termici SEMPRE staccando l'unità di misura (es. "20 °C" e NON "20°C"). DEVI INCLUDERE l'emoji del disagio termico copiandola dai dati (es. "con un disagio marcato 🟠"). Se c'è l'avviso "(possibili gelate)", copialo testualmente dopo la minima.
+    1. TITOLO E IMPAGINAZIONE: Inizia ESATTAMENTE con: <b>Aggiornamento meteo di {oggi_str}</b>.
+    2. STRUTTURA: Due paragrafi in totale, uno per Oggi e uno per Domani. Tra il titolo e il primo paragrafo, e tra il primo e il secondo paragrafo, devi lasciare ESATTAMENTE UNA SOLA riga vuota (ovvero premi 'Invio' due volte, non tre). È SEVERAMENTE VIETATO lasciare spaziature eccessive. INIZIA SEMPRE ogni paragrafo citando il giorno contestualizzato e la data (es. "Oggi, {oggi_str}, " oppure "Domani, {domani_str}, ").
+    3. STILE TEMPERATURE E DISAGIO CALDO: Subito dopo la data, per esprimere le temperature usa TASSATIVAMENTE questa struttura al singolare: "la temperatura minima sarà di X °C, mentre la massima raggiungerà i Y °C". Scrivi i valori termici SEMPRE staccando l'unità di misura (es. "20 °C"). DEVI INCLUDERE l'emoji del disagio termico copiandola dai dati (es. "con un disagio marcato 🟠"). Se c'è l'avviso "(possibili gelate)", copialo testualmente dopo la minima.
     4. CIELO E NEBBIA: Non usare MAI l'avverbio "prevalentemente", usa sempre "in prevalenza". Se nei dati è indicata la nebbia, integrala in maniera fluida con la descrizione della nuvolosità (es. "Al mattino saranno possibili banchi di nebbia, che lasceranno spazio a un cielo in prevalenza poco nuvoloso...").
     5. STILE VENTO E DISAGIO FREDDO: Se nei dati leggi "La ventilazione sarà blanda" o "La ventilazione sarà da blanda a moderata", scrivi ESATTAMENTE questo. Se è forte, aggancia fluidamente l'emoji e il disagio da freddo al vento se indicato.
     6. DIVIETO COMMENTI SOGGETTIVI: NON usare MAI espressioni romanzate come "condizioni ideali" o "giornata scomoda". Mantieni un tono tecnico e fattuale. NESSUN asterisco o markdown.
@@ -226,7 +226,7 @@ def main():
     dew_avg = get_avg_arrays(h_ch2_det.get('dew_point_2m'), h_ch2_ens.get('dew_point_2m'), h_sea_det.get('dew_point_2m'), h_sea_ens.get('dew_point_2m'))
     ur_avg = get_avg_arrays(h_ch2_det.get('relative_humidity_2m'), h_ch2_ens.get('relative_humidity_2m'), h_sea_det.get('relative_humidity_2m'), h_sea_ens.get('relative_humidity_2m'))
     app_avg = get_avg_arrays(h_ch2_det.get('apparent_temperature'), h_ch2_ens.get('apparent_temperature'), h_sea_det.get('apparent_temperature'), h_sea_ens.get('apparent_temperature'))
-    w_gst_avg = get_avg_arrays(h_ch2_det.get('wind_gusts_10m'), h_ch2_ens.get('wind_gusts_10m'), h_sea_det.get('wind_gusts_10m'), h_sea_ens.get('wind_gusts_10m'))
+    w_gst_avg = get_avg_arrays(h_ch2_det.get('wind_gusts_10m'), h_ch2_ens.get('wind_gusts_10m'), h_sea_det.get('wind_gusts_10m'), h_sea_det.get('wind_gusts_10m'))
     cape_avg = get_avg_arrays(h_ch2_det.get('cape'), h_ch2_ens.get('cape'), h_sea_det.get('cape'), h_sea_ens.get('cape'))
     rain_avg = get_avg_arrays(h_ch2_det.get('rain'), h_ch2_ens.get('rain'), h_sea_det.get('rain'), h_sea_ens.get('rain'))
     snow_avg = get_avg_arrays(h_ch2_det.get('snowfall'), h_ch2_ens.get('snowfall'), h_sea_det.get('snowfall'), h_sea_ens.get('snowfall'))
