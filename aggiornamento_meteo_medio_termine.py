@@ -8,8 +8,8 @@ from collections import Counter
 from datetime import datetime, timedelta
 from groq import Groq
 
-LAT = 45.0736
-LON = 7.5434
+LAT = 45.07347491421504
+LON = 7.543461388723449
 
 GIORNI_IT = {0: "lunedì", 1: "martedì", 2: "mercoledì", 3: "giovedì", 4: "venerdì", 5: "sabato", 6: "domenica"}
 MESI_IT = {1: "gennaio", 2: "febbraio", 3: "marzo", 4: "aprile", 5: "maggio", 6: "giugno", 
