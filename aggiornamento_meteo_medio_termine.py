@@ -6,8 +6,8 @@ import requests
 from datetime import datetime, timedelta
 from groq import Groq
 
-LAT = 45.07347491421504
-LON = 7.543461388723449
+LAT = 45.0707
+LON = 7.5146
 
 GIORNI_IT = {0: "lunedì", 1: "martedì", 2: "mercoledì", 3: "giovedì", 4: "venerdì", 5: "sabato", 6: "domenica"}
 MESI_IT = {1: "gennaio", 2: "febbraio", 3: "marzo", 4: "aprile", 5: "maggio", 6: "giugno", 
@@ -37,11 +37,6 @@ def ottieni_fascia_oraria(ora):
     elif 17 <= ora < 19: return "tardo pomeriggio"
     elif 19 <= ora < 22: return "sera"
     else: return "tarda serata"
-
-def gradi_a_direzione(gradi):
-    if gradi is None: return "N/A"
-    dirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW', 'N']
-    return dirs[int(round(gradi / 45.0)) % 8]
 
 def calcola_disagio_caldo(t_aria, dew_point):
     if t_aria >= 40 and dew_point >= 15: return ("(disagio estremo 🟣)", 4)
@@ -110,21 +105,19 @@ def interpella_groq(dati_testuali, oggi_str, giorni_str):
     
     prompt = f"""
     Sei un meteorologo professionista. Il tuo compito è scrivere un bollettino discorsivo, fluido ed elegante per Rivoli (TO) a MEDIO TERMINE.
-    Ti fornirò un elenco dei "fatti salienti" già calcolati e processati (picchi, orari, soglie superate). Il tuo compito è trasformare questi appunti in un testo discorsivo.
+    Ti fornirò un elenco dei "fatti salienti" già calcolati e processati. Il tuo compito è trasformare questi appunti in un testo discorsivo continuo.
     
-    REGOLE FERREE (PENA IL FALLIMENTO):
-    1. TITOLO E IMPAGINAZIONE: Inizia ESATTAMENTE con: <b>Aggiornamento meteo a medio termine di {oggi_str}</b>. Lascia una riga vuota tra il titolo e il primo paragrafo.
-    2. STRUTTURA: Scrivi tre paragrafi: il primo per {giorni_str[2]}, il secondo per {giorni_str[3]}, il terzo per {giorni_str[4]}. Non usare righe vuote tra i paragrafi.
-    3. NO ELENCHI PUNTATI: Trasforma le informazioni in frasi continue. È vietato fare liste.
-    4. CITA I DATI PRE-CALCOLATI: Usa fedelmente le fasce orarie che ti fornisco nei dati (es. "nella prima parte della mattinata", "nel tardo pomeriggio"). 
-    5. NON INVENTARE: Non dedurre orari o condizioni diverse da quelle scritte. Se l'anomalia oraria di una temperatura è segnalata, menzionala ("raggiunta insolitamente in...").
-    6. DISAGIO TERMICO: Includi sempre la stringa del disagio termico fornita (compresa l'emoji) quando parli del momento di maggior afa/freddo.
-    7. FLUIDITÀ SULLA NUVOLOSITÀ: È SEVERAMENTE VIETATO generare cacofonie come "la nuvolosità sarà parzialmente nuvolosa". Usa "il cielo si presenterà...", "avremo cieli...", "copertura nuvolosa...".
-    8. PRECIPITAZIONI: Riporta fluidamente le probabilità di precipitazione fornite, l'orario di inizio, il picco e la fine esatta indicata.
-    9. DIVIETO ASSOLUTO DI FORMATTAZIONE MARKDOWN: NON USARE MAI asterischi (*) o underscore (_). Usa solo testo pulito e il tag HTML <b> per il titolo.
-    10. SILENZIO SUI FENOMENI ASSENTI: NON menzionare MAI l'assenza di fenomeni (vento, precipitazioni, gelate). Parla SOLO di ciò che ti viene fornito.
+    REGOLE FERREE:
+    1. TITOLO: Inizia ESATTAMENTE con: <b>Aggiornamento meteo a medio termine di {oggi_str}</b>. Lascia una riga vuota.
+    2. STRUTTURA: Tre paragrafi, uno per {giorni_str[2]}, uno per {giorni_str[3]}, uno per {giorni_str[4]}. Non usare righe vuote tra i paragrafi.
+    3. NO ELENCHI: Trasforma i punti in frasi.
+    4. RISPETTO DELLE FASCE ORARIE: Usa i termini ("prima parte della mattinata", "tardo pomeriggio") indicati.
+    5. DISAGIO TERMICO: Includi SEMPRE l'indicazione del disagio e le sue emoji quando citi il momento più caldo/freddo.
+    6. FLUIDITÀ NUVOLOSITÀ: Usa frasi come "il cielo si presenterà...", senza cacofonie.
+    7. ACCUMULI PREVISTI: Quando presenti, cita gli accumuli di pioggia in mm e quelli di neve in cm. Specifica anche l'eventuale accumulo al suolo per la neve.
+    8. FORMATTAZIONE: NESSUN asterisco (*), underscore (_) o markdown. Usa solo <b> per il titolo.
     
-    DATI SINTETIZZATI DA TRASFORMARE IN TESTO:
+    DATI DA TRASFORMARE:
     {dati_testuali}
     """
     try:
@@ -156,111 +149,68 @@ def main():
     dt_fine_estrazione = dt_oggi + timedelta(days=4)
 
     usa_seamless = False
-    try:
-        dati_det = scarica_dati_con_retry("https://api.open-meteo.com/v1/forecast", params={
-            "latitude": LAT, "longitude": LON,
-            "hourly": "wind_direction_10m,cape,sunshine_duration,apparent_temperature,temperature_1000hPa,temperature_975hPa,temperature_950hPa,temperature_925hPa,temperature_900hPa,temperature_850hPa,temperature_800hPa",
-            "daily": "sunrise,sunset",
-            "models": "meteoswiss_icon_ch2",
-            "timezone": "Europe/Rome", 
-            "start_date": dt_inizio_estrazione.strftime("%Y-%m-%d"),
-            "end_date": dt_fine_estrazione.strftime("%Y-%m-%d")
-        })
+    
+    base_params = {
+        "latitude": LAT, "longitude": LON,
+        "daily": "temperature_2m_min,temperature_2m_max,rain_sum,snowfall_sum,wind_gusts_10m_max",
+        "hourly": "temperature_2m,dew_point_2m,wind_gusts_10m,rain,snowfall,snow_depth,cape,sunshine_duration,apparent_temperature,relative_humidity_2m",
+        "timezone": "Europe/Rome",
+        "start_date": dt_inizio_estrazione.strftime("%Y-%m-%d"),
+        "end_date": dt_fine_estrazione.strftime("%Y-%m-%d")
+    }
 
-        dati_eps = scarica_dati_con_retry("https://ensemble-api.open-meteo.com/v1/ensemble", params={
-            "latitude": LAT, "longitude": LON,
-            "hourly": "temperature_2m,precipitation,wind_speed_10m,wind_gusts_10m,relative_humidity_2m,dew_point_2m,apparent_temperature",
-            "models": "meteoswiss_icon_ch2_ensemble",
-            "timezone": "Europe/Rome",
-            "start_date": dt_inizio_estrazione.strftime("%Y-%m-%d"),
-            "end_date": dt_fine_estrazione.strftime("%Y-%m-%d")
-        })
+    try:
+        params_ch2 = base_params.copy()
+        params_ch2["models"] = "meteoswiss_icon_ch2_ensemble"
+        dati_eps = scarica_dati_con_retry("https://ensemble-api.open-meteo.com/v1/ensemble", params=params_ch2)
         
-        orari_temp = dati_det.get('hourly', {}).get('time', [])
+        orari_temp = dati_eps.get('hourly', {}).get('time', [])
         target_dt = dt_fine_estrazione + timedelta(hours=20)
         if not orari_temp or datetime.fromisoformat(orari_temp[-1]) < target_dt:
             usa_seamless = True
-            
     except Exception as e:
-        print(f"⚠️ Errore ICON-CH2: {e}. Fallback su SEAMLESS in corso...")
+        print(f"⚠️ Errore ICON-CH2 ENSEMBLE: {e}. Fallback su SEAMLESS in corso...")
         usa_seamless = True
 
     if usa_seamless:
         try:
-            dati_det = scarica_dati_con_retry("https://api.open-meteo.com/v1/forecast", params={
-                "latitude": LAT, "longitude": LON,
-                "hourly": "wind_direction_10m,cape,sunshine_duration,apparent_temperature,temperature_1000hPa,temperature_975hPa,temperature_950hPa,temperature_925hPa,temperature_900hPa,temperature_850hPa,temperature_800hPa",
-                "daily": "sunrise,sunset",
-                "models": "icon_seamless",
-                "timezone": "Europe/Rome", 
-                "start_date": dt_inizio_estrazione.strftime("%Y-%m-%d"),
-                "end_date": dt_fine_estrazione.strftime("%Y-%m-%d")
-            })
-
-            dati_eps = scarica_dati_con_retry("https://ensemble-api.open-meteo.com/v1/ensemble", params={
-                "latitude": LAT, "longitude": LON,
-                "hourly": "temperature_2m,precipitation,wind_speed_10m,wind_gusts_10m,relative_humidity_2m,dew_point_2m,apparent_temperature",
-                "models": "icon_seamless",
-                "timezone": "Europe/Rome",
-                "start_date": dt_inizio_estrazione.strftime("%Y-%m-%d"),
-                "end_date": dt_fine_estrazione.strftime("%Y-%m-%d")
-            })
+            params_seamless = base_params.copy()
+            params_seamless["models"] = "icon_seamless"
+            dati_eps = scarica_dati_con_retry("https://ensemble-api.open-meteo.com/v1/ensemble", params=params_seamless)
         except Exception as e:
             print(f"❌ Errore fatale Seamless: {e}")
             return
 
-    h_det = dati_det.get('hourly', {})
     h_eps = dati_eps.get('hourly', {})
-    orari = h_det.get('time', [])
+    d_eps = dati_eps.get('daily', {})
+    orari = h_eps.get('time', [])
     if not orari: return
 
-    sunrise_str = dati_det.get('daily', {}).get('sunrise', [])
-    sunset_str = dati_det.get('daily', {}).get('sunset', [])
-
-    medie_sole = {2: {'mattino': [], 'pomeriggio': []}, 3: {'mattino': [], 'pomeriggio': []}, 4: {'mattino': [], 'pomeriggio': []}}
-    indici_validi = []
-    
-    for i, t_str in enumerate(orari):
-        ora_dt = datetime.fromisoformat(t_str)
-        giorno_idx = (ora_dt.date() - dt_oggi.date()).days
-        if giorno_idx == 4 and ora_dt.hour > 20: continue
-        indici_validi.append(i)
-        
-        if giorno_idx not in medie_sole: continue
-        alba = datetime.fromisoformat(sunrise_str[giorno_idx - 2])
-        tramonto = datetime.fromisoformat(sunset_str[giorno_idx - 2])
-        alba_piu_2 = alba + timedelta(hours=2)
-        tramonto_meno_2 = tramonto - timedelta(hours=2)
-        
-        sun_sec = h_det.get('sunshine_duration', [])[i] if i < len(h_det.get('sunshine_duration', [])) else None
-        sun_minuti = (sun_sec or 0) / 60
-        if alba_piu_2 <= ora_dt and ora_dt.hour < 13: medie_sole[giorno_idx]['mattino'].append(sun_minuti)
-        elif ora_dt.hour >= 13 and ora_dt <= tramonto_meno_2: medie_sole[giorno_idx]['pomeriggio'].append(sun_minuti)
-
-    for g in medie_sole:
-        for p in ['mattino', 'pomeriggio']:
-            lst = medie_sole[g][p]
-            medie_sole[g][p] = sum(lst) / len(lst) if lst else 0
-
+    # --- AGGREGAZIONE GIORNALIERA PRELIMINARE ---
+    giorni_time = d_eps.get('time', [])
     dati_giorni = {g: {
         't_min': 100, 'ora_t_min': None,
         't_max': -100, 'ora_t_max': None,
+        'rain_sum': 0.0, 'snow_sum': 0.0, 'max_snow_depth': 0.0,
         'livello_disagio_max': -1, 'stringa_disagio': "", 'ora_disagio_max': None,
-        'w_gst_max': -1, 'ora_w_gst_max': None, 'vento_intensificato': False, 'tipo_vento': "",
+        'w_gst_max': -1, 'ora_w_gst_max': None, 'vento_intensificato': False,
         'ha_precip': False, 'ora_inizio_p': None, 'ora_fine_p': None, 'picco_p_mm': -1, 'ora_picco_p': None, 'prob_max_p': 0, 'tipo_p': "",
-        'cielo_mattino': "", 'cielo_pomeriggio': "",
+        'sole_mattino': [], 'sole_pomeriggio': [], 'cielo_mattino': "", 'cielo_pomeriggio': "",
         'gelate': set(), 'nebbie': set()
     } for g in [2, 3, 4]}
 
-    dew_point_prev = None
-    w_gst_prev = None
-    ur_prev = None
+    for d_idx, d_str in enumerate(giorni_time):
+        d_dt = datetime.fromisoformat(d_str)
+        giorno_idx = (d_dt.date() - dt_oggi.date()).days
+        if giorno_idx in dati_giorni:
+            dati_giorni[giorno_idx]['rain_sum'] = media_lista_float([d_eps[k][d_idx] for k in d_eps if k.startswith('rain_sum_member')])
+            dati_giorni[giorno_idx]['snow_sum'] = media_lista_float([d_eps[k][d_idx] for k in d_eps if k.startswith('snowfall_sum_member')])
 
+    indici_validi = [i for i, t in enumerate(orari) if 2 <= (datetime.fromisoformat(t).date() - dt_oggi.date()).days <= 4 and not ((datetime.fromisoformat(t).date() - dt_oggi.date()).days == 4 and datetime.fromisoformat(t).hour > 20)]
+
+    w_gst_prev = None
     if indici_validi and indici_validi[0] > 0:
-        primo_idx = indici_validi[0]
-        dew_point_prev = media_lista([h_eps[k][primo_idx - 1] for k in h_eps if k.startswith('dew_point_2m_member')])
-        w_gst_prev = media_lista([h_eps[k][primo_idx - 1] for k in h_eps if k.startswith('wind_gusts_10m_member')])
-        ur_prev = media_lista([h_eps[k][primo_idx - 1] for k in h_eps if k.startswith('relative_humidity_2m_member')])
+        w_gst_prev = media_lista([h_eps[k][indici_validi[0] - 1] for k in h_eps if k.startswith('wind_gusts_10m_member')])
 
     for i in indici_validi:
         ora_dt = datetime.fromisoformat(orari[i])
@@ -270,21 +220,30 @@ def main():
         
         g_data = dati_giorni[giorno_idx]
         
+        # Medie orarie dell'ensemble
         t_media = media_lista([h_eps[k][i] for k in h_eps if k.startswith('temperature_2m_member')])
         dew_media = media_lista([h_eps[k][i] for k in h_eps if k.startswith('dew_point_2m_member')])
-        app_media = media_lista([h_eps[k][i] for k in h_eps if k.startswith('apparent_temperature_member')])
         ur_media = media_lista([h_eps[k][i] for k in h_eps if k.startswith('relative_humidity_2m_member')])
-        w_spd_media = media_lista([h_eps[k][i] for k in h_eps if k.startswith('wind_speed_10m_member')])
+        app_media = media_lista([h_eps[k][i] for k in h_eps if k.startswith('apparent_temperature_member')])
         w_gst_media = media_lista([h_eps[k][i] for k in h_eps if k.startswith('wind_gusts_10m_member')])
+        rain_media = media_lista_float([h_eps[k][i] for k in h_eps if k.startswith('rain_member')])
+        snow_media = media_lista_float([h_eps[k][i] for k in h_eps if k.startswith('snowfall_member')])
+        snow_depth_media = media_lista_float([h_eps[k][i] for k in h_eps if k.startswith('snow_depth_member')])
+        cape_media = media_lista([h_eps[k][i] for k in h_eps if k.startswith('cape_member')])
+        sun_media = media_lista([h_eps[k][i] for k in h_eps if k.startswith('sunshine_duration_member')])
         
-        w_dir = h_det.get('wind_direction_10m', [])[i] if i < len(h_det.get('wind_direction_10m', [])) else None
-        w_dir_str = gradi_a_direzione(w_dir)
-        cape = h_det.get('cape', [])[i] if i < len(h_det.get('cape', [])) else 0
-        if cape is None: cape = 0
+        prec_tot_media = rain_media + snow_media
         
-        prec_eps_membri = [h_eps[k][i] for k in h_eps if k.startswith('precipitation_member')]
-        prec_media_eps = media_lista_float(prec_eps_membri)
-        pct_1mm = percentuale_superamento(prec_eps_membri, 1.0)
+        rain_membri = [h_eps[k][i] for k in h_eps if k.startswith('rain_member')]
+        snow_membri = [h_eps[k][i] for k in h_eps if k.startswith('snowfall_member')]
+        prec_tot_membri = [r + s for r, s in zip(rain_membri, snow_membri) if r is not None and s is not None]
+        
+        pct_1mm = percentuale_superamento(prec_tot_membri, 1.0)
+        
+        # --- NUVOLOSITÀ ---
+        sun_pct = (sun_media / 3600.0) * 100
+        if 7 <= ora_solare <= 12: g_data['sole_mattino'].append(sun_pct)
+        elif 13 <= ora_solare <= 18: g_data['sole_pomeriggio'].append(sun_pct)
         
         # --- TEMPERATURE ---
         if t_media < g_data['t_min']:
@@ -295,67 +254,51 @@ def main():
             g_data['ora_t_max'] = ora_solare
             
         # --- DISAGIO ORA PER ORA ---
-        if estate:
-            str_dis, liv_dis = calcola_disagio_caldo(t_media, dew_media)
-        else:
-            str_dis, liv_dis = calcola_disagio_freddo(app_media)
+        if estate: str_dis, liv_dis = calcola_disagio_caldo(t_media, dew_media)
+        else: str_dis, liv_dis = calcola_disagio_freddo(app_media)
             
         if liv_dis > g_data['livello_disagio_max']:
             g_data['livello_disagio_max'] = liv_dis
             g_data['stringa_disagio'] = str_dis
             g_data['ora_disagio_max'] = ora_solare
 
-        # --- VENTO ---
+        # --- VENTO (Variazione >= 10 km/h) ---
         if w_gst_media > g_data['w_gst_max']:
             g_data['w_gst_max'] = w_gst_media
             g_data['ora_w_gst_max'] = ora_solare
             
-        if w_gst_prev is not None:
-            if (w_gst_media - w_gst_prev) >= 10:
-                g_data['vento_intensificato'] = True
+        if w_gst_prev is not None and (w_gst_media - w_gst_prev) >= 10:
+            g_data['vento_intensificato'] = True
                 
-            if w_dir_str in ['NW', 'N', 'W'] and ((w_gst_media - w_gst_prev) >= 10 or w_gst_media >= 30) and ((dew_point_prev - dew_media) >= 1 or ur_media < 40):
-                g_data['tipo_vento'] = "per condizioni di Föhn"
-            elif w_dir_str in ['E', 'NE', 'SE'] and ((w_gst_media - w_gst_prev) >= 10 or w_gst_media >= 30) and ur_media > 40:
-                g_data['tipo_vento'] = "umida orientale"
-                
-        # --- PRECIPITAZIONI ---
-        is_instabilita_estiva = (estate and cape > 200)
+        # --- PRECIPITAZIONI E NEVE ---
+        if snow_depth_media > g_data['max_snow_depth']:
+            g_data['max_snow_depth'] = snow_depth_media
+
+        is_instabilita_estiva = (estate and cape_media > 200)
         prob_soglia = 15 if is_instabilita_estiva else 50
         
         if pct_1mm >= prob_soglia:
             g_data['ha_precip'] = True
-            if g_data['ora_inizio_p'] is None:
-                g_data['ora_inizio_p'] = ora_solare
+            if g_data['ora_inizio_p'] is None: g_data['ora_inizio_p'] = ora_solare
             g_data['ora_fine_p'] = ora_solare 
             
-            # Traccia la probabilità massima oraria raggiunta durante l'evento
-            if pct_1mm > g_data['prob_max_p']:
-                g_data['prob_max_p'] = int(round(pct_1mm))
+            if pct_1mm > g_data['prob_max_p']: g_data['prob_max_p'] = int(round(pct_1mm))
                 
-            if prec_media_eps >= g_data['picco_p_mm']: 
-                g_data['picco_p_mm'] = prec_media_eps
+            if prec_tot_media >= g_data['picco_p_mm']: 
+                g_data['picco_p_mm'] = prec_tot_media
                 g_data['ora_picco_p'] = ora_solare
                 
-                if is_instabilita_estiva:
+                if snow_media > rain_media and snow_media > 0.5:
+                    g_data['tipo_p'] = "nevicate"
+                elif is_instabilita_estiva:
                     g_data['tipo_p'] = "rovesci o temporali"
                 elif estate:
                     g_data['tipo_p'] = "rovesci"
                 else:
-                    if t_media < 2:
-                        strati_quota = [
-                            h_det.get('temperature_1000hPa', [])[i] if i < len(h_det.get('temperature_1000hPa', [])) else None,
-                            h_det.get('temperature_850hPa', [])[i] if i < len(h_det.get('temperature_850hPa', [])) else None
-                        ]
-                        inv = any(t > 1 for t in strati_quota if t is not None)
-                        if inv:
-                            g_data['tipo_p'] = "piogge (per inversione in quota)" if t_media > 0 else "PERICOLO PIOGGIA CONGELANTE"
-                        else: g_data['tipo_p'] = "neve"
-                    else:
-                        g_data['tipo_p'] = "piogge"
+                    g_data['tipo_p'] = "piogge"
 
         # --- NEBBIA E GELO ---
-        if abs(dew_media - t_media) <= 1 and ur_media >= 95 and w_spd_media < 10:
+        if abs(dew_media - t_media) <= 1 and ur_media >= 95 and w_gst_media < 15: 
             g_data['nebbie'].add(ottieni_fascia_oraria(ora_solare))
             
         if ora_solare >= 22 or ora_solare <= 8:
@@ -363,20 +306,19 @@ def main():
             elif -4 < t_media <= -1 and ur_media >= 60: g_data['gelate'].add(f"gelate diffuse in {ottieni_fascia_oraria(ora_solare)}")
             elif -1 < t_media <= 1 and t_media <= 0 and ur_media >= 55: g_data['gelate'].add(f"lievi gelate in {ottieni_fascia_oraria(ora_solare)}")
 
-        dew_point_prev = dew_media
         w_gst_prev = w_gst_media
-        ur_prev = ur_media
         
     for g in [2, 3, 4]:
         for fascia in ['mattino', 'pomeriggio']:
-            avg_sun = medie_sole[g][fascia]
+            lista_sole = dati_giorni[g][f'sole_{fascia}']
+            avg_sun = sum(lista_sole) / len(lista_sole) if lista_sole else 0
+            
             cielo = ""
-            if avg_sun < 10: cielo = "molto nuvoloso o coperto"
-            elif avg_sun <= 25: cielo = "irregolarmente o molto nuvoloso"
-            elif avg_sun <= 40: cielo = "parzialmente o irregolarmente nuvoloso"
-            elif avg_sun <= 50: cielo = "parzialmente nuvoloso"
-            elif avg_sun <= 57: cielo = "poco nuvoloso"
-            else: cielo = "sereno"
+            if avg_sun >= 80: cielo = "sereno"
+            elif avg_sun >= 60: cielo = "poco nuvoloso"
+            elif avg_sun >= 40: cielo = "parzialmente nuvoloso"
+            elif avg_sun >= 20: cielo = "irregolarmente nuvoloso"
+            else: cielo = "molto nuvoloso o coperto"
             dati_giorni[g][f'cielo_{fascia}'] = cielo
 
     oggi_str = formatta_data_it(dt_oggi)
@@ -408,20 +350,23 @@ def main():
         testo_per_ia += f"- Cielo prevalente al pomeriggio: {dg['cielo_pomeriggio']}\n"
         
         if dg['ha_precip']:
-            testo_per_ia += f"- Precipitazioni: previsti {dg['tipo_p']} con una probabilità massima stimata del {dg['prob_max_p']}%.\n"
-            testo_per_ia += f"  Inizio precipitazioni in {ottieni_fascia_oraria(dg['ora_inizio_p'])}, termine in {ottieni_fascia_oraria(dg['ora_fine_p'])}.\n"
+            testo_per_ia += f"- Precipitazioni: previste {dg['tipo_p']} con probabilità massima del {dg['prob_max_p']}%.\n"
+            testo_per_ia += f"  Inizio in {ottieni_fascia_oraria(dg['ora_inizio_p'])}, termine in {ottieni_fascia_oraria(dg['ora_fine_p'])} con picco di intensità in {ottieni_fascia_oraria(dg['ora_picco_p'])}.\n"
             
-            int_prec = "deboli"
-            if dg['picco_p_mm'] > 5: int_prec = "forti"
-            elif dg['picco_p_mm'] >= 2: int_prec = "moderate"
-            testo_per_ia += f"  Intensità massima stimata come {int_prec} (circa {dg['picco_p_mm']} mm/h) con picco in {ottieni_fascia_oraria(dg['ora_picco_p'])}.\n"
+            if dg['tipo_p'] == "nevicate" and dg['snow_sum'] > 0:
+                testo_per_ia += f"  Accumulo totale nevoso stimato: {dg['snow_sum']} cm. "
+                if dg['max_snow_depth'] > 0:
+                    testo_per_ia += f"Deposito massimo previsto al suolo: {dg['max_snow_depth']} cm.\n"
+                else: testo_per_ia += "\n"
+            elif dg['rain_sum'] > 1.0 and not estate:
+                testo_per_ia += f"  Accumulo pluviometrico giornaliero stimato: {dg['rain_sum']} mm.\n"
             
         if dg['w_gst_max'] >= 30:
             int_vento = "modesta"
             if dg['w_gst_max'] >= 70: int_vento = "tempestosa"
             elif dg['w_gst_max'] >= 50: int_vento = "forte"
             
-            txt_vento = f"- Vento: ventilazione {int_vento} {dg['tipo_vento']}. Raffiche massime previste in {ottieni_fascia_oraria(dg['ora_w_gst_max'])}."
+            txt_vento = f"- Vento: ventilazione {int_vento}. Raffiche massime previste in {ottieni_fascia_oraria(dg['ora_w_gst_max'])}."
             if dg['vento_intensificato']: txt_vento += " Si segnala una netta intensificazione delle correnti nel corso di quelle ore."
             testo_per_ia += txt_vento + "\n"
             
