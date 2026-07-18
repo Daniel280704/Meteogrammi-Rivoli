@@ -160,7 +160,7 @@ def interpella_groq(dati_testuali, oggi_str, giorni_str):
     3. STILE TEMPERATURE E DISAGIO CALDO: Usa il singolare senza indicare gli orari. Scrivi i valori termici SEMPRE staccando l'unità di misura (es. "20 °C" e NON "20°C"). DEVI INCLUDERE l'emoji del disagio copiandola dai dati. Se c'è l'avviso "(possibili gelate)", copialo testualmente dopo la minima.
     4. CIELO E NEBBIA: Non usare MAI l'avverbio "prevalentemente", usa sempre "in prevalenza". Se nei dati è indicata la nebbia, integrala in maniera fluida con la descrizione della nuvolosità (es. "Al mattino saranno possibili banchi di nebbia, che lasceranno spazio a un cielo in prevalenza poco nuvoloso...").
     5. STILE VENTO E DISAGIO FREDDO: Se nei dati leggi "La ventilazione sarà blanda", scrivi ESATTAMENTE questo. Se è forte, aggancia fluidamente l'emoji e il disagio da freddo al vento se indicato.
-    6. DIVIETO COMMENTI SOGGETTIVI: NON usare MAI espressioni romanzate come "condizioni ideali" o "giornata scomoda". Mantieni un tono tecnico e fattuale. NESSUN asterisco o markdown.
+    6. DIVIETO COMMENTI SOGGETTIVI: NON usare MAI espressioni romanzate come "condizioni ideali" o "giornata scomoda". Mantieni un tono tecnico e fattuale. NESSUN asterisco o markdown. Usa un linguaggio naturale per integrare le varie fasi di precipitazione fornite nei dati.
     7. QUALITÀ DELL'ARIA E SABBIA: Se presente l'avviso per aria inquinata o depositi di sabbia sulle superfici esposte, riportalo testualmente in modo asciutto alla fine.
     
     DATI DA TRASFORMARE:
@@ -254,7 +254,12 @@ def main():
                 'prob_max': prob_det_avg[d_idx] if d_idx < len(prob_det_avg) else 0,
                 'livello_dc_max': 0, 'str_dc': "", 'livello_df_max': 0, 'str_df': "",
                 'w_gst_max': -1, 'ora_w_gst_max': None, 'ora_inizio_vento': None, 'ora_fine_vento': None,
-                'ha_precip': False, 'ora_inizio_p': None, 'ora_fine_p': None, 'picco_p_mm': -1, 'ora_picco_p': None, 'tipo_p': "",
+                'ha_precip': False,
+                'eventi_precip': {
+                    'pioggia': {'inizio': None, 'fine': None, 'picco_mm': -1, 'ora_picco': None, 'estate_tipo': 'piogge'},
+                    'mista': {'inizio': None, 'fine': None, 'picco_mm': -1, 'ora_picco': None},
+                    'neve': {'inizio': None, 'fine': None, 'picco_mm': -1, 'ora_picco': None}
+                },
                 'cielo_mattino': "", 'cielo_pomeriggio': "", 'nebbie': set(), 'ha_gelate': False, 'aq_level': 0, 'max_snow_depth': 0.0,
                 'ha_sabbia': False
             }
@@ -294,22 +299,35 @@ def main():
         sd_i = snow_depth_avg[i] if i < len(snow_depth_avg) else 0
         if sd_i > dg['max_snow_depth']: dg['max_snow_depth'] = sd_i
 
-        # Rolling window per le precipitazioni (4 ore)
+        # Rolling window per le precipitazioni (3 ore)
         idx_start = max(0, i - 1)
-        idx_end = min(len(orari), i + 3)
-        prec_4h = sum((rain_avg[j] + snow_avg[j]) for j in range(idx_start, idx_end) if j < len(rain_avg) and j < len(snow_avg))
+        idx_end = min(len(orari), i + 2)
+        prec_3h = sum((rain_avg[j] + snow_avg[j]) for j in range(idx_start, idx_end) if j < len(rain_avg) and j < len(snow_avg))
         prec_oraria = rain_avg[i] + snow_avg[i]
         
-        if prec_4h >= 1.0 and prec_oraria > 0.0:
+        if prec_3h >= 1.0 and prec_oraria > 0.0:
             if dust_val > 25: dg['ha_sabbia'] = True
-            if dg['ora_inizio_p'] is None: dg['ora_inizio_p'] = ora_solare
-            dg['ora_fine_p'] = ora_solare
-            if prec_oraria > dg['picco_p_mm']:
-                dg['picco_p_mm'], dg['ora_picco_p'] = prec_oraria, ora_solare
-                if snow_avg[i] > rain_avg[i] and snow_avg[i] > 0.1: dg['tipo_p'] = "nevicate"
-                elif (estate and cape_avg[i] > 400): dg['tipo_p'] = "rovesci o temporali"
-                elif estate: dg['tipo_p'] = "rovesci"
-                else: dg['tipo_p'] = "piogge"
+            
+            # Determinazione del tipo di precipitazione oraria
+            is_snow = snow_avg[i] >= 0.1
+            is_rain = rain_avg[i] >= 0.1
+            
+            if is_snow and is_rain: t_p = 'mista'
+            elif is_snow: t_p = 'neve'
+            else: t_p = 'pioggia'
+            
+            ev = dg['eventi_precip'][t_p]
+            if ev['inizio'] is None: ev['inizio'] = ora_solare
+            ev['fine'] = ora_solare
+            
+            if prec_oraria > ev['picco_mm']:
+                ev['picco_mm'] = prec_oraria
+                ev['ora_picco'] = ora_solare
+                
+                if t_p == 'pioggia':
+                    if estate and cape_avg[i] > 400: ev['estate_tipo'] = "rovesci o temporali"
+                    elif estate: ev['estate_tipo'] = "rovesci"
+                    else: ev['estate_tipo'] = "piogge"
 
         # Nebbia
         if ur_m >= 93 or dep <= 1.5:
@@ -336,7 +354,10 @@ def main():
         
         is_instabile = (estate and max([cape_avg[i] for i in indici_validi if (datetime.fromisoformat(orari[i]).date() - dt_oggi.date()).days == g] + [0]) > 400)
         soglia_precip = 15 if is_instabile else 50
-        if dg['prob_max'] >= soglia_precip and dg['ora_inizio_p'] is not None: dg['ha_precip'] = True
+        
+        # Scatta l'avviso precipitazioni se la probabilità è raggiunta e almeno una categoria di precipitazione è iniziata
+        if dg['prob_max'] >= soglia_precip and any(dg['eventi_precip'][k]['inizio'] is not None for k in dg['eventi_precip']): 
+            dg['ha_precip'] = True
             
         testo_per_ia += f"GIORNO: {giorni_str[g]}\n"
         gelate_str = " (possibili gelate)" if dg['ha_gelate'] else ""
@@ -353,34 +374,42 @@ def main():
         if dg['ha_precip']:
             p_round = arrotonda_prob(dg['prob_max'])
             sabbia_str = " (con possibilità di depositi di sabbia sulle superfici esposte)" if dg['ha_sabbia'] else ""
+            testo_per_ia += f"- Precipitazioni (Probabilità {p_round}%){sabbia_str}:\n"
             
-            if estate and dg['tipo_p'] in ["rovesci", "rovesci o temporali"]:
-                testo_per_ia += f"- Precipitazioni: Possibilità di {dg['tipo_p']} ({p_round}%){sabbia_str}."
-                if dg['ora_inizio_p'] == dg['ora_fine_p']: testo_per_ia += f" Fenomeni isolati {ottieni_fascia_oraria(dg['ora_inizio_p'])} (ore {dg['ora_inizio_p']}).\n"
-                else: testo_per_ia += f" Tra le ore {dg['ora_inizio_p']} e le ore {dg['ora_fine_p']}.\n"
-            else:
-                i_prec = "deboli"
-                if dg['picco_p_mm'] >= 30: i_prec = "a carattere di nubifragio"
-                elif dg['picco_p_mm'] >= 8: i_prec = "molto forti"
-                elif dg['picco_p_mm'] >= 4: i_prec = "forti"
-                elif dg['picco_p_mm'] >= 2: i_prec = "moderate"
+            # Filtra ed ordina cronologicamente le fasi attive
+            active_types = [t for t in ['pioggia', 'mista', 'neve'] if dg['eventi_precip'][t]['inizio'] is not None]
+            active_types.sort(key=lambda t: dg['eventi_precip'][t]['inizio'])
+            
+            for t_p in active_types:
+                ev = dg['eventi_precip'][t_p]
                 
-                picco_val = arrotonda_intero(dg['picco_p_mm'])
+                if t_p == 'pioggia': nome_fenomeno = ev['estate_tipo']
+                elif t_p == 'mista': nome_fenomeno = "pioggia mista a neve"
+                elif t_p == 'neve': nome_fenomeno = "nevicate"
+                
+                i_prec = "deboli"
+                if ev['picco_mm'] >= 30: i_prec = "a carattere di nubifragio"
+                elif ev['picco_mm'] >= 8: i_prec = "molto forti"
+                elif ev['picco_mm'] >= 4: i_prec = "forti"
+                elif ev['picco_mm'] >= 2: i_prec = "moderate"
+                
+                picco_val = arrotonda_intero(ev['picco_mm'])
                 picco_txt = f"circa {picco_val} mm/h" if picco_val > 0 else "inferiore a 1 mm/h"
                 
-                testo_per_ia += f"- Precipitazioni: Previste {dg['tipo_p']} {i_prec} ({p_round}%){sabbia_str}."
-                if dg['ora_inizio_p'] == dg['ora_fine_p']: testo_per_ia += f" Isolate {ottieni_fascia_oraria(dg['ora_inizio_p'])} (ore {dg['ora_inizio_p']})."
-                else: testo_per_ia += f" Inizio {ottieni_fascia_oraria(dg['ora_inizio_p'])} (ore {dg['ora_inizio_p']}), intensificazione con picco {ottieni_fascia_oraria(dg['ora_picco_p'])} (ore {dg['ora_picco_p']}), attenuazione e cessazione {ottieni_fascia_oraria(dg['ora_fine_p'])} (ore {dg['ora_fine_p']})."
-                
-                if dg['tipo_p'] == "nevicate" and dg['snow_sum'] > 0:
-                    sd_max = dg['max_snow_depth'] * 100
-                    if sd_max <= 1: s_str = "lieve velo al suolo"
-                    elif sd_max <= 3: s_str = "lieve imbiancata"
-                    elif sd_max <= 5: s_str = "discreta imbiancata"
-                    else: s_str = "abbondante imbiancata"
-                    testo_per_ia += f" Accumulo nevoso stimato: {arrotonda_intero(dg['snow_sum'])} cm ({s_str}).\n"
+                if ev['inizio'] == ev['fine']:
+                    testo_per_ia += f"  * Fase di {nome_fenomeno} {i_prec}: fenomeni isolati {ottieni_fascia_oraria(ev['inizio'])} (ore {ev['inizio']}).\n"
                 else:
-                    testo_per_ia += f" Accumulo pluviometrico stimato sui {arrotonda_intero(dg['rain_sum'] + dg['snow_sum'])} mm. Intensità massima stimata: {picco_txt}.\n"
+                    testo_per_ia += f"  * Fase di {nome_fenomeno} {i_prec}: inizio {ottieni_fascia_oraria(ev['inizio'])} (ore {ev['inizio']}), picco {ottieni_fascia_oraria(ev['ora_picco'])} (ore {ev['ora_picco']}) con intensità {picco_txt}, fine {ottieni_fascia_oraria(ev['fine'])} (ore {ev['fine']}).\n"
+            
+            if dg['snow_sum'] > 0 and ('neve' in active_types or 'mista' in active_types):
+                sd_max = dg['max_snow_depth'] * 100
+                if sd_max <= 1: s_str = "lieve velo al suolo"
+                elif sd_max <= 3: s_str = "lieve imbiancata"
+                elif sd_max <= 5: s_str = "discreta imbiancata"
+                else: s_str = "abbondante imbiancata"
+                testo_per_ia += f"  * Accumulo nevoso stimato a fine evento: {arrotonda_intero(dg['snow_sum'])} cm ({s_str}).\n"
+            
+            testo_per_ia += f"  * Accumulo pluviometrico totale stimato (incluso equivalente liquido della neve): {arrotonda_intero(dg['rain_sum'] + dg['snow_sum'])} mm.\n"
 
         if dg['w_gst_max'] >= 50:
             int_vento = "tempestosa" if dg['w_gst_max'] >= 70 else "forte"
