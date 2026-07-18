@@ -30,13 +30,13 @@ def formatta_data_it(dt):
     return f"{GIORNI_IT[dt.weekday()]} {dt.day} {MESI_IT[dt.month]}"
 
 def ottieni_fascia_oraria(ora):
-    if 0 <= ora < 6: return "notte"
-    elif 6 <= ora < 10: return "prima parte della mattinata"
-    elif 10 <= ora < 13: return "tarda mattinata"
-    elif 13 <= ora < 17: return "pomeriggio"
-    elif 17 <= ora < 19: return "tardo pomeriggio"
-    elif 19 <= ora < 22: return "serata"
-    else: return "tarda serata"
+    if 0 <= ora < 6: return "nella notte"
+    elif 6 <= ora < 10: return "nella prima parte della mattinata"
+    elif 10 <= ora < 13: return "nella tarda mattinata"
+    elif 13 <= ora < 17: return "nel pomeriggio"
+    elif 17 <= ora < 19: return "nel tardo pomeriggio"
+    elif 19 <= ora < 22: return "in serata"
+    else: return "nella tarda serata"
 
 def calcola_disagio_caldo(t_aria, dew_point):
     if t_aria >= 40 and dew_point >= 15: return ("(disagio estremo 🟣)", 4)
@@ -82,8 +82,15 @@ def calcola_disagio_freddo(windchill):
         return ("(nessun disagio o freddo tollerabile 🟢)", 0)
 
 def pulisci_disagio(stringa):
-    """Rimuove testo superfluo per restituire solo la dicitura essenziale, es: 'marcato 🟠'"""
     return stringa.replace("(disagio ", "").replace("da freddo ", "").replace("(", "").replace(")", "").replace("o caldo tollerabile ", "").replace("o freddo tollerabile ", "").strip()
+
+def arrotonda_tondo(valore):
+    """Arrotonda alla decina più vicina se >= 10, altrimenti all'intero più vicino"""
+    if valore is None: return 0
+    if valore >= 10:
+        return int((valore + 5) // 10 * 10)
+    else:
+        return int(round(valore))
 
 def media_lista(lista):
     valori_validi = [v for v in lista if v is not None]
@@ -115,11 +122,10 @@ def interpella_groq(dati_testuali, oggi_str, giorni_str):
     1. TITOLO: Inizia ESATTAMENTE con: <b>Aggiornamento meteo a medio termine di {oggi_str}</b>. Lascia una riga vuota.
     2. STRUTTURA: Tre paragrafi, uno per {giorni_str[2]}, uno per {giorni_str[3]}, uno per {giorni_str[4]}. Non usare righe vuote tra i paragrafi.
     3. STILE TEMPERATURE E DISAGIO: Usa sempre il singolare per le temperature (es. "una temperatura minima di 20°C e una massima di 34°C"). Il disagio termico va inserito tra parentesi, indicando solo il livello e l'emoji (es. "Il picco di disagio termico (marcato 🟠) sarà registrato nel tardo pomeriggio").
-    4. STILE VENTO E PRECIPITAZIONI: Indica le raffiche di vento tra parentesi (es. "con le raffiche massime previste nella notte (attorno ai 45 km/h)"). Fai lo stesso per gli accumuli e le intensità di pioggia/neve, usando i numeri forniti.
-    5. ORARI: Privilegia le descrizioni come "tarda mattinata" o "serata". Quando usi un orario numerico fornito nei dati (inizio, fine o picco precipitazioni), scrivilo senza i minuti (es. "alle 21" e NON "alle 21:00").
-    6. FLUIDITÀ NUVOLOSITÀ: Usa frasi come "il cielo si presenterà...", senza cacofonie.
-    7. DIVIETO ASSOLUTO DI COMMENTI SOGGETTIVI E RIEMPITIVI: NON aggiungere MAI deduzioni o frasi conclusive soggettive. È ASSOLUTAMENTE VIETATO usare espressioni come "offrendo condizioni ideali", "senza compromettere la piacevolezza", "rendendo la giornata scomoda", "senza influenzare significativamente". Il tono deve essere asciutto, puramente descrittivo e strettamente meteorologico.
-    8. FORMATTAZIONE: NESSUN asterisco (*), underscore (_) o markdown. Usa solo il tag <b> per il titolo.
+    4. STILE VENTO E PRECIPITAZIONI: Indica le raffiche di vento tra parentesi (es. "con le raffiche massime previste nella notte (attorno ai 40 km/h)"). Fai lo stesso per gli accumuli e le intensità di pioggia/neve, usando ESATTAMENTE i numeri arrotondati che ti fornisco.
+    5. ORARI E PREPOSIZIONI: Copia e usa ESATTAMENTE le preposizioni articolate di tempo fornite nei dati (es. "nel pomeriggio", "nella notte", "nella tarda mattinata"). È severamente vietato scrivere "in notte" o "in pomeriggio".
+    6. DIVIETO ASSOLUTO DI COMMENTI SOGGETTIVI E RIEMPITIVI: NON aggiungere MAI deduzioni o frasi conclusive soggettive. È ASSOLUTAMENTE VIETATO usare espressioni come "offrendo condizioni ideali", "senza compromettere la piacevolezza", "rendendo la giornata scomoda", "senza influenzare significativamente". Il tono deve essere asciutto, puramente descrittivo e strettamente meteorologico.
+    7. FORMATTAZIONE: NESSUN asterisco (*), underscore (_) o markdown. Usa solo il tag <b> per il titolo.
     
     DATI DA TRASFORMARE:
     {dati_testuali}
@@ -197,7 +203,7 @@ def main():
         't_max': -100, 'ora_t_max': None,
         'rain_sum': 0.0, 'snow_sum': 0.0, 'max_snow_depth': 0.0,
         'livello_disagio_max': -1, 'stringa_disagio': "", 'ora_disagio_max': None,
-        'w_gst_max': -1, 'ora_w_gst_max': None, 'vento_intensificato': False,
+        'w_gst_max': -1, 'ora_w_gst_max': None,
         'ha_precip': False, 'ora_inizio_p': None, 'ora_fine_p': None, 'picco_p_mm': -1, 'ora_picco_p': None, 'prob_max_p': 0, 'tipo_p': "",
         'sole_mattino': [], 'sole_pomeriggio': [], 'cielo_mattino': "", 'cielo_pomeriggio': "",
         'gelate': set(), 'nebbie': set()
@@ -211,10 +217,6 @@ def main():
             dati_giorni[giorno_idx]['snow_sum'] = media_lista_float([d_eps[k][d_idx] for k in d_eps if k.startswith('snowfall_sum_member')])
 
     indici_validi = [i for i, t in enumerate(orari) if 2 <= (datetime.fromisoformat(t).date() - dt_oggi.date()).days <= 4 and not ((datetime.fromisoformat(t).date() - dt_oggi.date()).days == 4 and datetime.fromisoformat(t).hour > 20)]
-
-    w_gst_prev = None
-    if indici_validi and indici_validi[0] > 0:
-        w_gst_prev = media_lista([h_eps[k][indici_validi[0] - 1] for k in h_eps if k.startswith('wind_gusts_10m_member')])
 
     for i in indici_validi:
         ora_dt = datetime.fromisoformat(orari[i])
@@ -265,13 +267,10 @@ def main():
             g_data['stringa_disagio'] = str_dis
             g_data['ora_disagio_max'] = ora_solare
 
-        # --- VENTO (Variazione >= 10 km/h) ---
+        # --- VENTO ---
         if w_gst_media > g_data['w_gst_max']:
             g_data['w_gst_max'] = w_gst_media
             g_data['ora_w_gst_max'] = ora_solare
-            
-        if w_gst_prev is not None and (w_gst_media - w_gst_prev) >= 10:
-            g_data['vento_intensificato'] = True
                 
         # --- PRECIPITAZIONI E NEVE ---
         if snow_depth_media > g_data['max_snow_depth']:
@@ -305,12 +304,10 @@ def main():
             g_data['nebbie'].add(ottieni_fascia_oraria(ora_solare))
             
         if ora_solare >= 22 or ora_solare <= 8:
-            if t_media <= -4 and ur_media >= 50: g_data['gelate'].add(f"forti gelate in {ottieni_fascia_oraria(ora_solare)}")
-            elif -4 < t_media <= -1 and ur_media >= 60: g_data['gelate'].add(f"gelate diffuse in {ottieni_fascia_oraria(ora_solare)}")
-            elif -1 < t_media <= 1 and t_media <= 0 and ur_media >= 55: g_data['gelate'].add(f"lievi gelate in {ottieni_fascia_oraria(ora_solare)}")
+            if t_media <= -4 and ur_media >= 50: g_data['gelate'].add(f"forti gelate {ottieni_fascia_oraria(ora_solare)}")
+            elif -4 < t_media <= -1 and ur_media >= 60: g_data['gelate'].add(f"gelate diffuse {ottieni_fascia_oraria(ora_solare)}")
+            elif -1 < t_media <= 1 and t_media <= 0 and ur_media >= 55: g_data['gelate'].add(f"lievi gelate {ottieni_fascia_oraria(ora_solare)}")
 
-        w_gst_prev = w_gst_media
-        
     for g in [2, 3, 4]:
         for fascia in ['mattino', 'pomeriggio']:
             lista_sole = dati_giorni[g][f'sole_{fascia}']
@@ -338,45 +335,44 @@ def main():
         
         testo_per_ia += f"- Temp Minima: {round(dg['t_min'])}°C"
         if dg['ora_t_min'] is not None and dg['ora_t_min'] >= 10:
-            testo_per_ia += f" (raggiunta insolitamente verso le {dg['ora_t_min']}, in {ottieni_fascia_oraria(dg['ora_t_min'])})\n"
+            testo_per_ia += f" (raggiunta insolitamente verso le {dg['ora_t_min']}, {ottieni_fascia_oraria(dg['ora_t_min'])})\n"
         else: testo_per_ia += "\n"
             
         testo_per_ia += f"- Temp Massima: {round(dg['t_max'])}°C"
         if dg['ora_t_max'] is not None and (dg['ora_t_max'] < 13 or dg['ora_t_max'] >= 19):
-            testo_per_ia += f" (raggiunta insolitamente verso le {dg['ora_t_max']}, in {ottieni_fascia_oraria(dg['ora_t_max'])})\n"
+            testo_per_ia += f" (raggiunta insolitamente verso le {dg['ora_t_max']}, {ottieni_fascia_oraria(dg['ora_t_max'])})\n"
         else: testo_per_ia += "\n"
         
         if dg['livello_disagio_max'] > 0:
             dis_pulito = pulisci_disagio(dg['stringa_disagio'])
-            testo_per_ia += f"- Picco di disagio termico: ({dis_pulito}) registrato in {ottieni_fascia_oraria(dg['ora_disagio_max'])}\n"
+            testo_per_ia += f"- Picco di disagio termico: ({dis_pulito}) registrato {ottieni_fascia_oraria(dg['ora_disagio_max'])}\n"
             
         testo_per_ia += f"- Cielo prevalente al mattino: {dg['cielo_mattino']}\n"
         testo_per_ia += f"- Cielo prevalente al pomeriggio: {dg['cielo_pomeriggio']}\n"
         
         if dg['ha_precip']:
             testo_per_ia += f"- Precipitazioni: previste {dg['tipo_p']} con probabilità massima del {dg['prob_max_p']}%.\n"
-            testo_per_ia += f"  Inizio in {ottieni_fascia_oraria(dg['ora_inizio_p'])} (ore {dg['ora_inizio_p']}), termine in {ottieni_fascia_oraria(dg['ora_fine_p'])} (ore {dg['ora_fine_p']}) con picco di intensità in {ottieni_fascia_oraria(dg['ora_picco_p'])} (ore {dg['ora_picco_p']}).\n"
+            testo_per_ia += f"  Inizio {ottieni_fascia_oraria(dg['ora_inizio_p'])} (ore {dg['ora_inizio_p']}), termine {ottieni_fascia_oraria(dg['ora_fine_p'])} (ore {dg['ora_fine_p']}) con picco di intensità {ottieni_fascia_oraria(dg['ora_picco_p'])} (ore {dg['ora_picco_p']}).\n"
             
             if dg['tipo_p'] == "nevicate" and dg['snow_sum'] > 0:
-                testo_per_ia += f"  Accumulo totale nevoso stimato: circa {round(dg['snow_sum'])} cm. "
+                testo_per_ia += f"  Accumulo totale nevoso stimato: circa {arrotonda_tondo(dg['snow_sum'])} cm. "
                 if dg['max_snow_depth'] > 0:
-                    testo_per_ia += f"Deposito massimo previsto al suolo: circa {round(dg['max_snow_depth'])} cm.\n"
+                    testo_per_ia += f"Deposito massimo previsto al suolo: circa {arrotonda_tondo(dg['max_snow_depth'])} cm.\n"
                 else: testo_per_ia += "\n"
             elif dg['rain_sum'] > 1.0 and not estate:
-                testo_per_ia += f"  Accumulo pluviometrico giornaliero stimato: circa {round(dg['rain_sum'])} mm.\n"
+                testo_per_ia += f"  Accumulo pluviometrico giornaliero stimato: circa {arrotonda_tondo(dg['rain_sum'])} mm.\n"
             
             int_prec = "deboli"
             if dg['picco_p_mm'] > 5: int_prec = "forti"
             elif dg['picco_p_mm'] >= 2: int_prec = "moderate"
-            testo_per_ia += f"  Intensità massima stimata come {int_prec} (circa {round(dg['picco_p_mm'])} mm/h).\n"
+            testo_per_ia += f"  Intensità massima stimata come {int_prec} (circa {arrotonda_tondo(dg['picco_p_mm'])} mm/h).\n"
             
         if dg['w_gst_max'] >= 30:
             int_vento = "modesta"
             if dg['w_gst_max'] >= 70: int_vento = "tempestosa"
             elif dg['w_gst_max'] >= 50: int_vento = "forte"
             
-            txt_vento = f"- Vento: ventilazione {int_vento}. Raffiche massime previste in {ottieni_fascia_oraria(dg['ora_w_gst_max'])} (attorno ai {round(dg['w_gst_max'])} km/h)."
-            if dg['vento_intensificato']: txt_vento += " Si segnala una netta intensificazione delle correnti nel corso di quelle ore."
+            txt_vento = f"- Vento: ventilazione {int_vento}. Raffiche massime previste {ottieni_fascia_oraria(dg['ora_w_gst_max'])} (attorno ai {arrotonda_tondo(dg['w_gst_max'])} km/h)."
             testo_per_ia += txt_vento + "\n"
             
         if dg['gelate']: testo_per_ia += f"- Pericolo gelo: {', '.join(dg['gelate'])}\n"
