@@ -151,17 +151,17 @@ def interpella_groq(dati_testuali, oggi_str, domani_str):
     client = Groq(api_key=api_key)
     
     prompt = f"""
-    Sei un meteorologo professionista. Scrivi un bollettino discorsivo, fluido ed elegante per Rivoli QUOTIDIANO (Oggi e Domani).
+    Sei un meteorologo professionista. Scrivi un bollettino discorsivo, fluido ed elegante per Rivoli QUOTIDIANO.
     Ti fornirò i "fatti salienti" generati da algoritmi matematici.
     
     REGOLE FERREE (PENA IL FALLIMENTO):
-    1. TITOLO: Inizia ESATTAMENTE con: <b>Aggiornamento meteo di {oggi_str}</b>. Lascia TASSATIVAMENTE una sola riga vuota (usa un doppio 'a capo') tra il titolo e il primo paragrafo.
-    2. STRUTTURA: Due paragrafi in totale, uno per Oggi e uno per Domani. Lascia ESATTAMENTE una sola riga vuota tra i paragrafi.
-    3. STILE TEMPERATURE E DISAGIO CALDO: Per esprimere le temperature devi usare TASSATIVAMENTE questa identica struttura al singolare: "la temperatura minima sarà di X °C, mentre la massima raggiungerà i Y °C". Scrivi i valori termici SEMPRE staccando l'unità di misura (es. "20 °C" e NON "20°C"). DEVI INCLUDERE l'emoji del disagio termico copiandola dai dati (es. "con un disagio marcato 🟠"). Se c'è l'avviso "(possibili gelate)", copialo testualmente dopo la minima.
-    4. CIELO E NEBBIA: Non usare MAI l'avverbio "prevalentemente", usa sempre "in prevalenza". Se nei dati è indicata la nebbia, integrala in maniera fluida con la descrizione della nuvolosità (es. "Al mattino saranno possibili banchi di nebbia, che lasceranno spazio a un cielo in prevalenza poco nuvoloso...").
-    5. STILE VENTO E DISAGIO FREDDO: Se nei dati leggi "La ventilazione sarà blanda" o "La ventilazione sarà da blanda a moderata", scrivi ESATTAMENTE questo. Se è forte, aggancia fluidamente l'emoji e il disagio da freddo al vento se indicato.
+    1. TITOLO: Inizia ESATTAMENTE con: <b>Aggiornamento meteo di {oggi_str}</b>. Lascia TASSATIVAMENTE una riga vuota (usa un doppio 'a capo') tra il titolo e il primo paragrafo.
+    2. STRUTTURA: Due paragrafi totali, uno per oggi e uno per domani. Lascia ESATTAMENTE una riga vuota tra i paragrafi.
+    3. STILE TEMPERATURE E DISAGIO CALDO: Usa il singolare senza indicare gli orari. Scrivi i valori termici SEMPRE staccando l'unità di misura (es. "20 °C" e NON "20°C"). DEVI INCLUDERE l'emoji del disagio copiandola dai dati. Se c'è l'avviso "(possibili gelate)", copialo testualmente dopo la minima.
+    4. CIELO E NEBBIA: Non usare MAI l'avverbio "prevalentemente", usa sempre "in prevalenza". Se nei dati è indicata la nebbia, integrala in maniera fluida con la descrizione della nuvolosità.
+    5. STILE VENTO E DISAGIO FREDDO: Se nei dati leggi "La ventilazione sarà blanda", scrivi ESATTAMENTE questo. Se è forte, aggancia fluidamente l'emoji e il disagio da freddo al vento se indicato.
     6. DIVIETO COMMENTI SOGGETTIVI: NON usare MAI espressioni romanzate come "condizioni ideali" o "giornata scomoda". Mantieni un tono tecnico e fattuale. NESSUN asterisco o markdown.
-    7. QUALITÀ DELL'ARIA E SABBIA: Se presente l'avviso per aria inquinata o depositi di sabbia sulle superfici esposte, riportalo testualmente in modo asciutto alla fine del rispettivo paragrafo.
+    7. QUALITÀ DELL'ARIA E SABBIA: Se presente l'avviso per aria inquinata o depositi di sabbia sulle superfici esposte, riportalo testualmente in modo asciutto alla fine.
     
     DATI DA TRASFORMARE:
     {dati_testuali}
@@ -185,23 +185,18 @@ def main():
 
     dt_oggi = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
     
-    # 1. ICON-CH2 Deterministico
     p_ch2_det = {"latitude": LAT, "longitude": LON, "timezone": "auto", "forecast_days": 3, "models": "meteoswiss_icon_ch2", 
                  "daily": "temperature_2m_min,temperature_2m_max,rain_sum,snowfall_sum,precipitation_probability_max,wind_direction_10m_dominant",
                  "hourly": "temperature_2m,relative_humidity_2m,dew_point_2m,apparent_temperature,rain,wind_gusts_10m,snowfall,snow_depth,cloud_cover_low,cloud_cover_mid,cloud_cover_high,cape,cloud_cover"}
-    # 2. ICON-CH2 Ensemble Mean
     p_ch2_ens = {"latitude": LAT, "longitude": LON, "timezone": "auto", "forecast_days": 3, "models": "meteoswiss_icon_ch2_ensemble_mean",
                  "daily": "temperature_2m_max,temperature_2m_min,rain_sum,snowfall_sum,wind_direction_10m_dominant",
                  "hourly": "temperature_2m,relative_humidity_2m,dew_point_2m,apparent_temperature,rain,snowfall,snow_depth,cloud_cover,cloud_cover_low,cloud_cover_mid,cloud_cover_high,wind_gusts_10m,cape"}
-    # 3. ICON Seamless Deterministico
     p_sea_det = {"latitude": LAT, "longitude": LON, "timezone": "auto", "forecast_days": 3, "models": "dwd_icon_seamless",
                  "daily": "temperature_2m_min,temperature_2m_max,rain_sum,snowfall_sum,precipitation_probability_max",
                  "hourly": "temperature_2m,relative_humidity_2m,dew_point_2m,apparent_temperature,rain,snowfall,snow_depth,cloud_cover,cloud_cover_low,cloud_cover_mid,cloud_cover_high,wind_gusts_10m,cape"}
-    # 4. ICON Seamless Ensemble Mean
     p_sea_ens = {"latitude": LAT, "longitude": LON, "timezone": "auto", "forecast_days": 3, "models": "dwd_icon_eps_ensemble_mean_seamless",
                  "daily": "temperature_2m_min,temperature_2m_max,rain_sum,snowfall_sum",
                  "hourly": "temperature_2m,relative_humidity_2m,dew_point_2m,apparent_temperature,rain,snowfall,cloud_cover,wind_gusts_10m,cape"}
-    # 5. Air Quality & Dust
     p_aq = {"latitude": LAT, "longitude": LON, "timezone": "auto", "forecast_days": 3, "hourly": "pm10,pm2_5,dust"}
 
     dati_ch2_det = scarica_sicuro("https://api.open-meteo.com/v1/forecast", p_ch2_det)
@@ -231,12 +226,12 @@ def main():
     dew_avg = get_avg_arrays(h_ch2_det.get('dew_point_2m'), h_ch2_ens.get('dew_point_2m'), h_sea_det.get('dew_point_2m'), h_sea_ens.get('dew_point_2m'))
     ur_avg = get_avg_arrays(h_ch2_det.get('relative_humidity_2m'), h_ch2_ens.get('relative_humidity_2m'), h_sea_det.get('relative_humidity_2m'), h_sea_ens.get('relative_humidity_2m'))
     app_avg = get_avg_arrays(h_ch2_det.get('apparent_temperature'), h_ch2_ens.get('apparent_temperature'), h_sea_det.get('apparent_temperature'), h_sea_ens.get('apparent_temperature'))
-    w_gst_avg = get_avg_arrays(h_ch2_det.get('wind_gusts_10m'), h_ch2_ens.get('wind_gusts_10m'), h_sea_det.get('wind_gusts_10m'), h_sea_det.get('wind_gusts_10m'))
+    w_gst_avg = get_avg_arrays(h_ch2_det.get('wind_gusts_10m'), h_ch2_ens.get('wind_gusts_10m'), h_sea_det.get('wind_gusts_10m'), h_sea_ens.get('wind_gusts_10m'))
     cape_avg = get_avg_arrays(h_ch2_det.get('cape'), h_ch2_ens.get('cape'), h_sea_det.get('cape'), h_sea_ens.get('cape'))
     rain_avg = get_avg_arrays(h_ch2_det.get('rain'), h_ch2_ens.get('rain'), h_sea_det.get('rain'), h_sea_ens.get('rain'))
     snow_avg = get_avg_arrays(h_ch2_det.get('snowfall'), h_ch2_ens.get('snowfall'), h_sea_det.get('snowfall'), h_sea_ens.get('snowfall'))
     cc_tot = get_avg_arrays(h_ch2_det.get('cloud_cover'), h_ch2_ens.get('cloud_cover'), h_sea_det.get('cloud_cover'), h_sea_ens.get('cloud_cover'))
-    snow_depth_avg = get_avg_arrays(h_ch2_det.get('snow_depth'), h_ch2_ens.get('snow_depth'), h_sea_depth_avg = get_avg_arrays(h_ch2_det.get('snow_depth'), h_ch2_ens.get('snow_depth'), h_sea_det.get('snow_depth')))
+    snow_depth_avg = get_avg_arrays(h_ch2_det.get('snow_depth'), h_ch2_ens.get('snow_depth'), h_sea_det.get('snow_depth'))
     cc_low = get_avg_arrays(h_ch2_det.get('cloud_cover_low'), h_ch2_ens.get('cloud_cover_low'), h_sea_det.get('cloud_cover_low'))
     cc_mid = get_avg_arrays(h_ch2_det.get('cloud_cover_mid'), h_ch2_ens.get('cloud_cover_mid'), h_sea_det.get('cloud_cover_mid'))
     cc_high = get_avg_arrays(h_ch2_det.get('cloud_cover_high'), h_ch2_ens.get('cloud_cover_high'), h_sea_det.get('cloud_cover_high'))
@@ -346,10 +341,7 @@ def main():
         cielo_txt = ""
         if dg['nebbie']: cielo_txt += f"Possibili banchi di nebbia {', '.join(dg['nebbie'])}, per il resto "
         if c_mat == c_pom:
-            if c_mat in ["sereno", "coperto"]:
-                cielo_txt += f"cielo prevalentemente {c_mat} per gran parte del giorno."
-            else:
-                cielo_txt += f"cielo in prevalenza {c_mat} per gran parte del giorno."
+            cielo_txt += f"cielo in prevalenza {c_mat} per gran parte del giorno."
         else:
             cielo_txt += f"cielo in prevalenza {c_mat} al mattino, tendente a {c_pom} nel pomeriggio."
         testo_per_ia += f"- Cielo: {cielo_txt}\n"
@@ -404,6 +396,7 @@ def main():
         elif dg['aq_level'] == 1: testo_per_ia += "- Attenzione, l'aria sarà inquinata.\n"
         testo_per_ia += "\n"
 
+    oggi_str = formatta_data_it(dt_oggi)
     bollettino_finale = interpella_groq(testo_per_ia, oggi_str, domani_str)
     
     token = os.getenv("TELEGRAM_TOKEN")
