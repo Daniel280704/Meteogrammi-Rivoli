@@ -158,12 +158,12 @@ def interpella_groq(dati_testuali, oggi_str, giorni_str):
     
     REGOLE FERREE (PENA IL FALLIMENTO):
     1. TITOLO E IMPAGINAZIONE: Inizia ESATTAMENTE con: <b>Aggiornamento meteo a medio termine di {oggi_str}</b>. Lascia TASSATIVAMENTE una riga vuota (usa un doppio 'a capo') tra il titolo e il primo paragrafo.
-    2. STRUTTURA: Tre paragrafi totali, uno per {giorni_str[2]}, uno per {giorni_str[3]}, uno per {giorni_str[4]}. Lascia ESATTAMENTE una riga vuota tra i paragrafi.
-    3. STILE TEMPERATURE E DISAGIO CALDO: Usa il singolare senza indicare gli orari. Scrivi i valori termici SEMPRE staccando l'unità di misura (es. "20 °C" e NON "20°C"). DEVI INCLUDERE l'emoji del disagio copiandola dai dati. Se c'è l'avviso "(possibili gelate)", copialo testualmente dopo la minima.
+    2. STRUTTURA: Tre paragrafi totali, uno per {giorni_str[2]}, uno per {giorni_str[3]}, uno per {giorni_str[4]}. Lascia ESATTAMENTE una riga vuota tra i paragrafi (ovvero premi 'Invio' due volte, non tre). È SEVERAMENTE VIETATO lasciare spaziature eccessive.
+    3. STILE TEMPERATURE E DISAGIO CALDO: Subito dopo la data, per esprimere le temperature usa TASSATIVAMENTE questa struttura al singolare: "la temperatura minima sarà di X °C, mentre la massima raggiungerà i Y °C". Scrivi i valori termici SEMPRE staccando l'unità di misura (es. "20 °C"). DEVI INCLUDERE l'emoji del disagio termico copiandola dai dati (es. "con un disagio marcato 🟠"). Se c'è l'avviso "(possibili gelate)", copialo testualmente dopo la minima.
     4. CIELO E NEBBIA: Non usare MAI l'avverbio "prevalentemente", usa sempre "in prevalenza". Se nei dati è indicata la nebbia, integrala in maniera fluida con la descrizione della nuvolosità (es. "Al mattino saranno possibili banchi di nebbia, che lasceranno spazio a un cielo in prevalenza poco nuvoloso...").
-    5. STILE VENTO E DISAGIO FREDDO: Se nei dati leggi "La ventilazione sarà blanda", scrivi ESATTAMENTE questo. Se è forte, aggancia fluidamente l'emoji e il disagio da freddo al vento se indicato.
+    5. STILE VENTO E DISAGIO FREDDO: Se nei dati leggi "La ventilazione sarà blanda" o "La ventilazione sarà da blanda a moderata", scrivi ESATTAMENTE questo. Se è forte, aggancia fluidamente l'emoji e il disagio da freddo al vento se indicato.
     6. DIVIETO COMMENTI SOGGETTIVI: NON usare MAI espressioni romanzate come "condizioni ideali" o "giornata scomoda". Mantieni un tono tecnico e fattuale. NESSUN asterisco o markdown. Usa un linguaggio naturale per integrare le varie fasi di precipitazione fornite nei dati.
-    7. QUALITÀ DELL'ARIA E SABBIA: Se presente l'avviso per aria inquinata o depositi di sabbia sulle superfici esposte, riportalo testualmente in modo asciutto alla fine.
+    7. QUALITÀ DELL'ARIA E SABBIA: Se presente l'avviso per aria inquinata o depositi di sabbia sulle superfici esposte, riportalo testualmente in modo asciutto alla fine del rispettivo paragrafo..
     
     DATI DA TRASFORMARE:
     {dati_testuali}
