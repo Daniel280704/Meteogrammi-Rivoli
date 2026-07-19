@@ -152,13 +152,23 @@ def interpella_groq(dati_testuali, oggi_str, giorni_str):
     if not api_key: return "Errore: GROQ_API_KEY non trovata."
     client = Groq(api_key=api_key)
     
-    prompt = f"""
+    prompt = f
+    """
     Sei un meteorologo professionista. Scrivi un bollettino discorsivo, fluido ed elegante per Rivoli a MEDIO TERMINE.
     Ti fornirò i "fatti salienti" generati da algoritmi matematici.
     
     REGOLE FERREE (PENA IL FALLIMENTO):
-    1. TITOLO E IMPAGINAZIONE: Inizia ESATTAMENTE con: <b>Aggiornamento meteo a medio termine di {oggi_str}</b>.
-    2. STRUTTURA: Tre paragrafi totali, uno per {giorni_str[2]}, uno per {giorni_str[3]}, uno per {giorni_str[4]}. Lascia ESATTAMENTE una riga vuota tra i paragrafi (ovvero premi 'Invio' due volte, non tre). È SEVERAMENTE VIETATO lasciare spaziature eccessive.
+    1. STRUTTURA VISIVA E IMPAGINAZIONE: Devi rispettare in modo ASSOLUTO questo esatto schema di formattazione. Usa ESATTAMENTE gli spazi indicati qui sotto, senza incollare i testi e senza aggiungere ulteriori righe vuote:
+
+<b>Aggiornamento meteo a medio termine di {oggi_str}</b>
+
+[Scrivi qui il paragrafo di {giorni_str[2]}]
+
+[Scrivi qui il paragrafo di {giorni_str[3]}]
+
+[Scrivi qui il paragrafo di {giorni_str[4]}]
+
+    2. CONTENUTO PARAGRAFI: INIZIA SEMPRE ogni paragrafo citando il giorno e la data (es. "{giorni_str[2]}, ").
     3. STILE TEMPERATURE E DISAGIO CALDO: Subito dopo la data, per esprimere le temperature usa TASSATIVAMENTE questa struttura al singolare: "la temperatura minima sarà di X °C, mentre la massima raggiungerà i Y °C". Scrivi i valori termici SEMPRE staccando l'unità di misura (es. "20 °C"). DEVI INCLUDERE l'emoji del disagio termico copiandola dai dati (es. "con un disagio marcato 🟠"). Se c'è l'avviso "(possibili gelate)", copialo testualmente dopo la minima.
     4. CIELO E NEBBIA: Non usare MAI l'avverbio "prevalentemente", usa sempre "in prevalenza". Se nei dati è indicata la nebbia, integrala in maniera fluida con la descrizione della nuvolosità (es. "Al mattino saranno possibili banchi di nebbia, che lasceranno spazio a un cielo in prevalenza poco nuvoloso...").
     5. STILE VENTO E DISAGIO FREDDO: Se nei dati leggi "La ventilazione sarà blanda" o "La ventilazione sarà da blanda a moderata", scrivi ESATTAMENTE questo. Se è forte, aggancia fluidamente l'emoji e il disagio da freddo al vento se indicato.
