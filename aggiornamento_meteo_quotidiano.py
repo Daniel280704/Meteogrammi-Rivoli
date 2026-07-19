@@ -133,15 +133,18 @@ def get_cielo_prevalente(hours, cc_tot, cc_low, cc_mid, cc_high):
     
     if avg_cc < 10: return "sereno"
     elif avg_low < 15 and avg_mid < 15:
-        if avg_cc <= 15: return "sereno"
-        elif avg_cc <= 50: return "poco nuvoloso per velature"
-        elif avg_cc <= 80: return "parzialmente nuvoloso per nubi alte"
-        else: return "cielo velato o coperto da nubi alte"
+        if avg_cc <= 15: return "sereno o al più poco nuvoloso per velature"
+        elif avg_cc <= 30: return "poco nuvoloso per velature"
+        elif avg_cc <= 50: return "parzialmente nuvoloso per velature"
+        elif avg_cc <= 70: return "irregolarmente nuvoloso per velature a tratti estese"
+        elif avg_cc <= 90: return "molto nuvoloso per estese velature"
+        else: return "coperto da nubi alte"
     else:
         if avg_cc <= 10: return "sereno"
         elif avg_cc <= 30: return "poco nuvoloso"
-        elif avg_cc <= 60: return "irregolarmente nuvoloso"
-        elif avg_cc <= 85: return "molto nuvoloso"
+        elif avg_cc <= 50: return "parzialmente nuvoloso"
+        elif avg_cc <= 70: return "irregolarmente nuvoloso"
+        elif avg_cc <= 90: return "molto nuvoloso"
         else: return "coperto"
 
 def interpella_groq(dati_testuali, oggi_str, domani_str):
@@ -347,7 +350,6 @@ def main():
     for g, nome_giorno in zip([0, 1], ["Oggi", "Domani"]):
         dg = dati_giorni[g]
         
-        # Le fasce orarie sono state modificate per prendere: mattino (6-12) e pomeriggio (13-19)
         h_mat = [i for i in indici_validi if (datetime.fromisoformat(orari[i]).date() - dt_oggi.date()).days == g and 6 <= datetime.fromisoformat(orari[i]).hour <= 12]
         h_pom = [i for i in indici_validi if (datetime.fromisoformat(orari[i]).date() - dt_oggi.date()).days == g and 13 <= datetime.fromisoformat(orari[i]).hour <= 19]
         c_mat = get_cielo_prevalente(h_mat, cc_tot, cc_low, cc_mid, cc_high)
