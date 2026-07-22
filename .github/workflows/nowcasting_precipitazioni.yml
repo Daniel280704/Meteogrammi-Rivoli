@@ -1,0 +1,39 @@
+name: Meteo Nowcasting (Mar-Ott)
+
+on:
+  schedule:
+    # Esegue ogni ora al minuto 15, dalle 07:00 alle 22:00 UTC (che copre la fascia attiva italiana)
+    # Valido solo per i mesi da Marzo a Ottobre (3-10)
+    - cron: '15 7-22 * 3-10 *'
+  workflow_dispatch:
+
+jobs:
+  run-nowcasting:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install Dependencies
+        run: |
+          pip install requests
+
+      - name: Esegui Nowcasting
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python nowcasting_precipitazioni.py
+
+      - name: Commit e push dello stato (se modificato)
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          git add stato_nowcasting.txt || true
+          git commit -m "Aggiornato stato nowcasting precipitazioni" || echo "Nessuna modifica da committare"
+          git push
