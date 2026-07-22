@@ -59,11 +59,12 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python aggiornamento_meteo_medio_termine.py
 
-      - name: Salva i file semaforo (Commit & Push)
+      - name: Salva i file di stato e semafori (Commit & Push)
         run: |
           git config --global user.name 'github-actions[bot]'
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
           git add lock_quotidiano.txt || true
           git add lock_medio_termine.txt || true
-          git commit -m "Aggiornamento semafori bollettini [skip ci]" || echo "Nessun aggiornamento semafori da committare"
+          git add stato_precipitazioni_quotidiano.txt || true
+          git commit -m "🤖 Aggiornamento semafori e stato precipitazioni [skip ci]" || echo "Nessun aggiornamento da committare"
           git push
