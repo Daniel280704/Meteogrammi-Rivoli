@@ -147,14 +147,29 @@ def stima_downburst(rh_700, rh_500, lapse_rate, wind_gust, dls):
         
     return "Livello 1 su 5 - DEBOLE. Outflow boundary ordinario, brezze rinfrescanti o raffiche non pericolose."
 
-def interpella_groq_semplice(report_tecnico, giorno_str, ora_innesco):
+def ora_con_articolo(ora):
+    if ora == 0:
+        return "la mezzanotte"
+    elif ora == 1:
+        return "l'una"
+    else:
+        return f"le {ora}"
+
+def formatta_fascia_oraria(ora_str):
+    """Prende un orario tipo '16:00' e restituisce 'tra le 15 e le 17' con gli articoli corretti."""
+    ora_centrale = int(ora_str.split(":")[0])
+    ora_prima = (ora_centrale - 1) % 24
+    ora_dopo = (ora_centrale + 1) % 24
+    return f"tra {ora_con_articolo(ora_prima)} e {ora_con_articolo(ora_dopo)}"
+
+def interpella_groq_semplice(report_tecnico, giorno_str, fascia_oraria):
     """Genera un messaggio DIVULGATIVO per il pubblico generico, partendo dagli stessi dati tecnici."""
     api_key = os.getenv("GROQ_API_KEY")
     if not api_key: return "Errore: Manca la chiave API di Groq."
         
     client = Groq(api_key=api_key)
     
-    prompt = f"""
+    prompt = f'''
     Sei un meteorologo che deve comunicare al pubblico generico (non esperti) il rischio maltempo per {giorno_str} a Rivoli (TO), zona Piemonte.
 
     Qui sotto trovi i dati tecnici e le stime di severità già calcolate algoritmicamente. Usali SOLO per capire la gravità della situazione, ma NON riportarli nel messaggio finale.
@@ -162,16 +177,19 @@ def interpella_groq_semplice(report_tecnico, giorno_str, ora_innesco):
     DATI TECNICI (uso interno, non citare numeri né sigle):
     {report_tecnico}
 
-    SCRIVI UN MESSAGGIO BREVE (massimo 4-5 frasi) SEGUENDO QUESTE REGOLE FERREE:
+    SCRIVI UN MESSAGGIO BREVE (massimo 3-4 frasi) SEGUENDO QUESTE REGOLE FERREE:
 
     1. LINGUAGGIO COMUNE: zero terminologia meteorologica tecnica. VIETATO scrivere parole come: downburst, cella singola, multicella, supercella, CAPE, shear, updraft, lapse rate, LCL, wind shear, o qualsiasi sigla. Parla come parleresti a un vicino di casa.
     2. SOLO FENOMENI, NON STRUTTURE: descrivi cosa potrebbe succedere (pioggia forte, grandine, vento, fulmini), mai come è fatto il temporale.
     3. CONDIZIONALE SEMPRE: usa sempre il condizionale ("potrebbe", "sarebbero possibili", "non è escluso che..."). Non affermare mai nulla come certo.
-    4. INCERTEZZA ESPLICITA: ricorda chiaramente che si tratta solo di una possibilità, non di una certezza, e che la situazione va monitorata.
-    5. INDICAZIONI PRATICHE E CONCRETE: includi una fascia oraria indicativa (circa {ora_innesco}), un'idea della grandezza della grandine in termini semplici (es. "piccola come piselli", "come palline da golf" - scegli in base al livello indicato nei dati), un'idea di intensità del vento in km/h se rilevante, e un consiglio pratico breve (es. mettere al riparo l'auto, evitare spostamenti non necessari).
-    6. NIENTE NUMERI TECNICI: non citare CAPE, shear, percentuali di probabilità o altri valori grezzi. Le uniche cifre ammesse sono l'orario indicativo, la velocità del vento in km/h e la dimensione della grandine.
-    7. TONO: rassicurante ma chiaro, senza allarmismo, in italiano semplice.
-    """
+    4. INCERTEZZA ESPLICITA: usa la forma "Ricorda che si tratta solo di una possibilità" (mai "Ricordate", sempre la forma singolare "Ricorda"), e invita a monitorare gli aggiornamenti.
+    5. FASCIA ORARIA: usa ESATTAMENTE e SOLO questa fascia oraria, copiala testualmente senza modificarla: "{fascia_oraria}". Non inventare altri orari e non scrivere mai orari nel formato tipo "14:00", usa solo la fascia fornita.
+    6. GRANDINE: se dai dati risulta un rischio di grandine, menzionala solo con un aggettivo generico (es. "piccola", "di media dimensione", "di grandi dimensioni") SENZA fare esempi o paragoni concreti (niente piselli, palline da golf o simili).
+    7. VENTO: se rilevante, indica solo l'intensità approssimativa in km/h (es. "raffiche fino a 70 km/h"), nessun altro numero tecnico.
+    8. NIENTE CONSIGLI PRATICI: non aggiungere suggerimenti o precauzioni (niente "metti al riparo l'auto", "evita spostamenti" o simili). Limitati a descrivere cosa potrebbe accadere.
+    9. NIENTE NUMERI TECNICI: non citare CAPE, shear, percentuali di probabilità o altri valori grezzi.
+    10. TONO: rassicurante ma chiaro, senza allarmismo, in italiano semplice.
+    '''
 
     try:
         chat_completion = client.chat.completions.create(
@@ -336,7 +354,8 @@ def main():
         
         giorno_formattato = datetime.strptime(data_str, "%Y-%m-%d").strftime("%d/%m/%Y")
         print(f"[{giorno_formattato}] Elaborazione messaggio divulgativo tramite Groq...")
-        responso = interpella_groq_semplice(report_dati, giorno_formattato, ora_fine_finestra)
+        fascia_oraria = formatta_fascia_oraria(ora_fine_finestra)
+        responso = interpella_groq_semplice(report_dati, giorno_formattato, fascia_oraria)
 
         if responso and not responso.startswith("Errore AI Groq"):
             responso = responso.replace("<", "&lt;").replace(">", "&gt;")
@@ -347,7 +366,7 @@ def main():
     if inviato_almeno_uno:
         corpo_messaggio = corpo_messaggio.rstrip("➖➖➖➖➖➖➖➖➖➖\n\n")
         
-        titolo = "⛈ <b>Possibile maltempo in arrivo</b>\n\n"
+        titolo = "⛈ <b>Avviso per possibili temporali</b>\n\n"
             
         messaggio_telegram = titolo + corpo_messaggio
         
@@ -363,6 +382,7 @@ def main():
                     "text": messaggio_telegram,
                     "parse_mode": "HTML"
                 })
+                
                 if res.status_code == 200:
                     print("Messaggio divulgativo inviato con successo su Telegram!")
                     with open(FILE_LOCK, "w") as f:
