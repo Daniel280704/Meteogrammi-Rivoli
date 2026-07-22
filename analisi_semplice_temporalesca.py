@@ -358,12 +358,11 @@ def main():
             if "Errore AI Groq:" in messaggio_telegram:
                 print("Blocco l'invio su Telegram a causa di un errore API nel responso.")
             else:
-                payload = {
-                    "chat_id": chat_id, 
-                    "text": messaggio_telegram, 
+                res = requests.post(f"https://api.telegram.org/bot{token}/sendMessage", data={
+                    "chat_id": chat_id,
+                    "text": messaggio_telegram,
                     "parse_mode": "HTML"
-                }
-                
+                })
                 if res.status_code == 200:
                     print("Messaggio divulgativo inviato con successo su Telegram!")
                     with open(FILE_LOCK, "w") as f:
