@@ -2,7 +2,7 @@ name: Meteo Nowcasting (Mar-Ott)
 
 on:
   schedule:
-    # Esegue ogni ora al minuto 15, dalle 07:00 alle 22:00 UTC (che copre la fascia attiva italiana)
+    # Esegue ogni ora al minuto 15, dalle 07:00 alle 22:00 UTC
     # Valido solo per i mesi da Marzo a Ottobre (3-10)
     - cron: '15 7-22 * 3-10 *'
   workflow_dispatch:
@@ -30,10 +30,10 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python nowcasting_precipitazioni.py
 
-      - name: Commit e push dello stato (se modificato)
+      - name: Commit e push dello stato (Nowcasting)
         run: |
           git config --global user.name 'github-actions[bot]'
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
           git add stato_nowcasting.txt || true
-          git commit -m "Aggiornato stato nowcasting precipitazioni" || echo "Nessuna modifica da committare"
+          git commit -m "🤖 Aggiornato stato nowcasting (anti-spam)" || echo "Nessuna modifica allo stato del nowcasting"
           git push
