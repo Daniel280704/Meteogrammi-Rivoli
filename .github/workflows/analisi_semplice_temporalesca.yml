@@ -5,7 +5,7 @@ on:
     # Esegue al minuto 12 dalle 07:12 UTC alle 18:12 UTC
     # Con l'ora legale italiana (UTC+2) corrisponde alla fascia oraria 09:12 - 20:12
     # Il "3-10" indica la validità da Marzo a Ottobre.
-    - cron: '12 7-18 * 3-10 *'
+    #- cron: '12 7-18 * 3-10 *'
   
   workflow_dispatch: # Permette l'avvio manuale dal sito
 
