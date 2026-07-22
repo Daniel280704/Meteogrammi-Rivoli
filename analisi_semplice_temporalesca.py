@@ -24,9 +24,7 @@ def calcola_vettore_traslazione(u, v):
     direction_deg = (math.degrees(math.atan2(u, v)) + 360) % 360
     return speed_kmh, direction_deg
 
-# ECCO LA FUNZIONE CHE MANCAVA!
 def magnitudo_shear(u1, v1, u2, v2):
-    """Calcola la magnitudo (m/s) della differenza vettoriale."""
     if None in (u1, v1, u2, v2):
         return None
     return math.sqrt((u2 - u1)**2 + (v2 - v1)**2)
@@ -86,7 +84,6 @@ def fetch_dati_termodinamici():
     return requests.get(url, params=params, timeout=40).json()['hourly']
 
 def fetch_ecmwf_pwat():
-    """Scarica l'acqua precipitabile da ECMWF per stimare l'intensità della pioggia."""
     url = "https://api.open-meteo.com/v1/forecast"
     params = {
         "latitude": LAT, "longitude": LON,
@@ -113,7 +110,6 @@ def min_sicuro(lista):
     return min(valori) if valori else 0
 
 def stima_intensita_pioggia(pwat):
-    """Restituisce l'intensità in base ai millimetri (kg/m2) di acqua precipitabile."""
     if pwat >= 40: return "pioggia violenta a carattere di nubifragio"
     if pwat >= 30: return "pioggia molto forte"
     return "pioggia forte"
@@ -193,14 +189,21 @@ def main():
     
     corpo_messaggio = ""
     inviato_almeno_uno = False
+    adesso = datetime.now()
     
     for data_str in giorni:
-        idx_g = [i for i, t in enumerate(hourly['time']) if t.startswith(data_str)]
-        if not idx_g: continue
+        indici_giorno = [i for i, t in enumerate(hourly['time']) if t.startswith(data_str)]
+        if not indici_giorno: continue
+        
+        # FILTRO FONDAMENTALE: scarta le ore già passate
+        indici_futuri = [i for i in indici_giorno if datetime.fromisoformat(hourly['time'][i]) >= adesso.replace(minute=0, second=0, microsecond=0)]
+        
+        if not indici_futuri:
+            continue
         
         idx_picco = -1
         
-        for i in idx_g:
+        for i in indici_futuri:
             p_d2 = hourly.get('precipitation_probability_dwd_icon_d2', [])
             p_ch2 = hourly.get('precipitation_probability_meteoswiss_icon_ch2', [])
             
@@ -212,7 +215,12 @@ def main():
                 break
         
         if idx_picco == -1:
-            idx_picco = [i for i in idx_g if hourly['time'][i].endswith("16:00")][0]
+            idx_16 = [i for i in indici_futuri if hourly['time'][i].endswith("16:00")]
+            if idx_16:
+                idx_picco = idx_16[0]
+            else:
+                print(f"[{data_str}] Rischio temporalesco nullo nelle ore rimanenti. Salto.")
+                continue
             
         indici_attivi = [idx for idx in range(idx_picco - 3, idx_picco + 1) if 0 <= idx < len(hourly['time'])]
         
