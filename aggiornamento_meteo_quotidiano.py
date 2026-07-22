@@ -457,6 +457,17 @@ def main():
         elif dg['aq_level'] == 1: testo_per_ia += "- Attenzione, l'aria sarà inquinata.\n"
         testo_per_ia += "\n"
 
+    # --- SALVATAGGIO STATO PER IL NOWCASTING ---
+    try:
+        with open("stato_precipitazioni_quotidiano.txt", "w") as f_stato:
+            for g in target_days:
+                data_str = (dt_oggi + timedelta(days=g)).strftime("%Y-%m-%d")
+                ha_precip_str = "SI" if dati_giorni[g]['ha_precip'] else "NO"
+                f_stato.write(f"{data_str},{ha_precip_str}\n")
+    except Exception as e:
+        print(f"⚠️ Errore salvataggio stato precipitazioni: {e}")
+    # -------------------------------------------
+
     oggi_str = formatta_data_it(dt_oggi)
     bollettino_finale = interpella_groq(testo_per_ia, oggi_str, domani_str)
     
