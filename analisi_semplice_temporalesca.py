@@ -10,7 +10,6 @@ LAT = 45.0734521841099
 LON = 7.543386286825349
 
 def scomposizione_vettoriale(speed_kmh, direction_deg):
-    """Converte velocità e direzione di provenienza in vettori U e V (m/s)."""
     if speed_kmh is None or direction_deg is None:
         return 0.0, 0.0
     speed_ms = speed_kmh / 3.6
@@ -20,24 +19,10 @@ def scomposizione_vettoriale(speed_kmh, direction_deg):
     return u, v
 
 def calcola_vettore_traslazione(u, v):
-    """Calcola velocità (km/h) e direzione VERSO CUI punta il vettore (gradi)."""
     speed_ms = math.sqrt(u**2 + v**2)
     speed_kmh = speed_ms * 3.6
     direction_deg = (math.degrees(math.atan2(u, v)) + 360) % 360
     return speed_kmh, direction_deg
-
-def magnitudo_shear(u1, v1, u2, v2):
-    """Calcola la magnitudo (m/s) della differenza vettoriale."""
-    if None in (u1, v1, u2, v2):
-        return None
-    return math.sqrt((u2 - u1)**2 + (v2 - v1)**2)
-
-def arrotonda_decina(valore):
-    """Arrotonda la raffica di vento alla decina più vicina (es. 16 -> 20)."""
-    if valore is None: return 0
-    v = int(round(valore))
-    if v < 10: return v
-    return int(round(v / 10.0) * 10)
 
 def classificazione_traslazione_avverbio(kmh):
     if kmh < 15: return "molto lentamente, risultando quasi stazionario"
@@ -49,6 +34,12 @@ def formatta_direzione_bussola(gradi):
     direzioni = ["nord", "nord-est", "est", "sud-est", "sud", "sud-ovest", "ovest", "nord-ovest"]
     indice = round(gradi / 45) % 8
     return direzioni[indice]
+
+def arrotonda_decina(valore):
+    if valore is None: return 0
+    v = int(round(valore))
+    if v < 10: return v
+    return int(round(v / 10.0) * 10)
 
 def check_probabilita_precipitazione():
     url = "https://api.open-meteo.com/v1/forecast"
@@ -78,7 +69,6 @@ def check_probabilita_precipitazione():
         return []
 
 def fetch_dati_termodinamici():
-    """Scarica tutti i dati termodinamici per calcoli identici allo script avanzato."""
     url = "https://api.open-meteo.com/v1/forecast"
     hourly_params = (
         "precipitation_probability," 
@@ -87,6 +77,21 @@ def fetch_dati_termodinamici():
     )
     params = {"latitude": LAT, "longitude": LON, "models": "dwd_icon_d2,meteoswiss_icon_ch2", "hourly": hourly_params, "timezone": "Europe/Rome", "forecast_days": 3}
     return requests.get(url, params=params, timeout=40).json()['hourly']
+
+def fetch_ecmwf_pwat():
+    """Scarica l'acqua precipitabile da ECMWF per stimare l'intensità della pioggia."""
+    url = "https://api.open-meteo.com/v1/forecast"
+    params = {
+        "latitude": LAT, "longitude": LON,
+        "models": "ecmwf_ifs",
+        "hourly": "total_column_integrated_water_vapour",
+        "timezone": "Europe/Rome",
+        "forecast_days": 3
+    }
+    try:
+        return requests.get(url, params=params, timeout=30).json()['hourly']
+    except: 
+        return None
 
 def media_sicura(lista):
     valori = [x for x in lista if x is not None]
@@ -100,8 +105,13 @@ def min_sicuro(lista):
     valori = [x for x in lista if x is not None]
     return min(valori) if valori else 0
 
+def stima_intensita_pioggia(pwat):
+    """Restituisce l'intensità in base ai millimetri (kg/m2) di acqua precipitabile."""
+    if pwat >= 40: return "pioggia violenta a carattere di nubifragio"
+    if pwat >= 30: return "pioggia molto forte"
+    return "pioggia forte"
+
 def stima_grandine_pubblico(cape, updraft, dls, zero_termico, spessore_nube):
-    """Valuta la grandine con la stessa precisione dello script approfondito, ma restituisce testo colloquiale."""
     cape = cape or 0
     updraft = updraft or 0
     dls = dls or 0
@@ -119,7 +129,6 @@ def stima_grandine_pubblico(cape, updraft, dls, zero_termico, spessore_nube):
         if zero_termico is not None and zero_termico > 4000:
             return "molto piccola o assente"
         return "di piccole dimensioni"
-        
     return "assente"
 
 def ora_con_articolo(ora):
@@ -133,7 +142,7 @@ def formatta_fascia_oraria(ora_str):
     ora_dopo = (ora_centrale + 1) % 24
     return f"tra {ora_con_articolo(ora_prima)} e {ora_con_articolo(ora_dopo)}"
 
-def interpella_groq_semplice(giorno_str, fascia, max_vento_arrotondato, trasl_kmh, trasl_dir, grandine_str):
+def interpella_groq_semplice(giorno_str, fascia, tipo_pioggia, max_vento_arrotondato, trasl_kmh, trasl_dir, grandine_str):
     api_key = os.getenv("GROQ_API_KEY")
     if not api_key: return "Errore: Manca la chiave API di Groq."
     client = Groq(api_key=api_key)
@@ -144,14 +153,15 @@ def interpella_groq_semplice(giorno_str, fascia, max_vento_arrotondato, trasl_km
     prompt = f"""
     Sei un meteorologo che parla al pubblico in modo diretto e chiaro. Per la giornata del {giorno_str} a Rivoli sono previsti fenomeni.
 
-    DEVI CREARE UN UNICO PARAGRAFO FLUIDO SEGUENDO ESATTAMENTE QUESTE 4 REGOLE:
+    DEVI CREARE UN UNICO PARAGRAFO FLUIDO SEGUENDO ESATTAMENTE QUESTE REGOLE:
     
-    1. INIZIA TESTUALMENTE COSÌ (non cambiare l'incipit): "Dagli ultimi aggiornamenti sembrerebbero possibili rovesci o temporali {fascia}, potenzialmente accompagnati da intense precipitazioni e raffiche di vento fino a {max_vento_arrotondato} km/h."
+    1. INIZIA TESTUALMENTE COSÌ E NON CAMBIARE UNA VIRGOLA (sostituisci solo i valori fra parentesi se non sono corretti, la struttura deve rimanere intatta): 
+       "Dagli ultimi aggiornamenti sembrerebbero possibili rovesci o temporali {fascia}, potenzialmente accompagnati da {tipo_pioggia} e raffiche di vento fino a {max_vento_arrotondato} km/h."
     2. GRANDINE: Aggiungi "La grandine dovrebbe risultare {grandine_str}." (Nota: se il dato dice assente, scrivi semplicemente "La grandine dovrebbe risultare assente.")
     3. TRASLAZIONE: Aggiungi "Il sistema temporalesco traslerà {velocita_str} verso {dir_testuale}."
     4. CONCLUSIONE OBBLIGATORIA (Copia e incolla testualmente): "Attenzione: considera che si tratta di fenomenologia localizzata e difficilmente prevedibile, non è dunque da escludere che le precipitazioni interessino maggiormente i comuni limitrofi o lascino addirittura completamente all'asciutto la tua zona."
     
-    IMPORTANTE: Unisci queste frasi per formare un unico blocco di testo leggibile. NON USARE HTML, NON SCRIVERE ALTRO (nessun "ecco a te" o simili). NON USARE TERMINI TECNICI.
+    IMPORTANTE: Unisci queste frasi per formare un unico blocco di testo leggibile. NON USARE HTML, NON SCRIVERE ALTRO. NON USARE TERMINI TECNICI E NON CREARE LISTE.
     """
     try:
         return client.chat.completions.create(messages=[{"role":"user","content":prompt}], model="llama-3.3-70b-versatile", temperature=0.2).choices[0].message.content
@@ -172,9 +182,15 @@ def main():
     if not giorni: return
     
     hourly = fetch_dati_termodinamici()
+    hourly_ecmwf = fetch_ecmwf_pwat()
+    
+    corpo_messaggio = ""
+    inviato_almeno_uno = False
     
     for data_str in giorni:
         idx_g = [i for i, t in enumerate(hourly['time']) if t.startswith(data_str)]
+        if not idx_g: continue
+        
         idx_picco = -1
         
         for i in idx_g:
@@ -190,11 +206,9 @@ def main():
         
         if idx_picco == -1:
             idx_picco = [i for i in idx_g if hourly['time'][i].endswith("16:00")][0]
-            print(f"[{data_str}] Nessun innesco orario netto trovato, fallback alle 16:00.")
             
         indici_attivi = [idx for idx in range(idx_picco - 3, idx_picco + 1) if 0 <= idx < len(hourly['time'])]
         
-        # Estrazione Dati per allineamento perfetto con il codice avanzato
         cape = max_sicuro([hourly['cape_dwd_icon_d2'][i] for i in indici_attivi])
         updraft = max_sicuro([hourly['updraft_dwd_icon_d2'][i] for i in indici_attivi])
         gust = max_sicuro([hourly['wind_gusts_10m_dwd_icon_d2'][i] for i in indici_attivi])
@@ -205,7 +219,14 @@ def main():
         spessore = (max_top - min_base) if min_base and max_top else 0
         z_termico = media_sicura([hourly['freezing_level_height_dwd_icon_d2'][i] for i in indici_attivi])
 
-        # Calcolo dei Vettori e del DLS (Shear Profondo 0-6km)
+        # Estrazione PWAT da ECMWF
+        if hourly_ecmwf:
+            pwat = max_sicuro([hourly_ecmwf['total_column_integrated_water_vapour'][i] for i in indici_attivi if i < len(hourly_ecmwf['total_column_integrated_water_vapour'])])
+        else:
+            pwat = 0
+            
+        tipo_pioggia = stima_intensita_pioggia(pwat)
+
         u_10, v_10 = [], []
         u_850, v_850 = [], []
         u_700, v_700 = [], []
@@ -227,28 +248,34 @@ def main():
         avg_u500, avg_v500 = sum(u_500)/len(u_500), sum(v_500)/len(v_500)
 
         dls = magnitudo_shear(avg_u10, avg_v10, avg_u500, avg_v500)
-        
-        # Traslazione e Grandine
         trasl_kmh, trasl_dir = calcola_vettore_traslazione((avg_u850+avg_u700+avg_u500)/3, (avg_v850+avg_v700+avg_v500)/3)
-        grandine_str = stima_grandine_pubblico(cape, updraft, dls, z_termico, spessore)
         
+        grandine_str = stima_grandine_pubblico(cape, updraft, dls, z_termico, spessore)
         ora_stringa = datetime.fromisoformat(hourly['time'][idx_picco]).strftime('%H:%M')
         fascia = formatta_fascia_oraria(ora_stringa)
         
-        testo = interpella_groq_semplice(data_str, fascia, vento_arrotondato, trasl_kmh, trasl_dir, grandine_str)
+        giorno_formattato = datetime.strptime(data_str, "%Y-%m-%d").strftime("%d/%m/%Y")
+        testo = interpella_groq_semplice(giorno_formattato, fascia, tipo_pioggia, vento_arrotondato, trasl_kmh, trasl_dir, grandine_str)
         
         if not testo.startswith("Errore AI Groq"):
             testo = testo.replace('<', '&lt;').replace('>', '&gt;')
         
-        messaggio = f"⛈ <b>Avviso per possibili temporali</b>\n\n📅 {datetime.strptime(data_str, '%Y-%m-%d').strftime('%d/%m/%Y')}\n\n{testo}"
+        corpo_messaggio += f"📅 <b>{giorno_formattato}</b>\n\n{testo}\n\n➖➖➖➖➖➖➖➖➖➖\n\n"
+        inviato_almeno_uno = True
+
+    if inviato_almeno_uno:
+        corpo_messaggio = corpo_messaggio.rstrip("➖➖➖➖➖➖➖➖➖➖\n\n")
+        titolo = "⛈ <b>Avviso per possibili temporali</b>\n\n"
+        messaggio_telegram = titolo + corpo_messaggio
         
         token = os.getenv('TELEGRAM_TOKEN')
         chat_id = os.getenv('TELEGRAM_CHAT_ID')
         if token and chat_id:
-            requests.post(f"https://api.telegram.org/bot{token}/sendMessage", data={
-                "chat_id": chat_id, "text": messaggio, "parse_mode": "HTML"
+            res = requests.post(f"https://api.telegram.org/bot{token}/sendMessage", data={
+                "chat_id": chat_id, "text": messaggio_telegram, "parse_mode": "HTML"
             })
-            with open(FILE_LOCK, "w") as f: f.write(oggi)
+            if res.status_code == 200:
+                with open(FILE_LOCK, "w") as f: f.write(oggi)
 
 if __name__ == "__main__":
     main()
