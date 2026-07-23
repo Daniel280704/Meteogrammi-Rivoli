@@ -6,25 +6,24 @@ import warnings
 
 warnings.filterwarnings('ignore', category=RuntimeWarning)
 
-FILENAME = "piemonte-tp-ens.grib"
-PNG_OUTPUT = "piemonte-tp-ens"
+FILENAME = "piemonte-tp-hres.grib"
+PNG_OUTPUT = "piemonte-tp-hres"
 
 def download_and_plot():
     client = Client("ecmwf", beta=False)
     
-    # Il run base è il 23 Luglio alle 00:00 UTC.
-    # Inizio finestra: 25 Luglio 00:00 UTC (+48 ore)
-    # Fine finestra: 27 Luglio 00:00 UTC (+96 ore, che include tutte le 24 ore del 26 luglio)
+    # Run base: 23 Luglio 2026 alle 00:00 UTC.
+    # Finestra accumulo: dalle 00:00 del 25 Luglio (+48h) alle 00:00 del 27 Luglio (+96h)
     
     try:
         client.retrieve(
             date=20260723,
             time=0,
-            step=[48, 96],     # Scarichiamo entrambi gli step temporali
-            stream="enfo",     # Ensemble Forecast
-            type="em",         # Ensemble Mean (Media degli scenari)
-            levtype="sfc",     # Dati al suolo (Surface)
-            param=['tp'],      # Total Precipitation (Precipitazione totale)
+            step=[48, 96],
+            stream="oper",     # <-- CAMBIATO: Run Deterministico (HRES)
+            type="fc",         # <-- CAMBIATO: Forecast
+            levtype="sfc",     
+            param=['tp'],      # Precipitazione Totale
             target=FILENAME
         )
     except Exception as e:
@@ -41,8 +40,7 @@ def download_and_plot():
     tp_48 = data.select(step=48)
     tp_96 = data.select(step=96)
     
-    # 1. ALGEBRA DELLE MAPPE: Sottraiamo l'accumulo precedente da quello finale
-    # 2. Moltiplichiamo per 1000 per convertire i metri in millimetri (mm)
+    # Sottrazione per isolare l'accumulo delle 48 ore e conversione in millimetri
     tp_accumulo_mm = (tp_96 - tp_48) * 1000
     
     coast = mv.mcoast(
@@ -63,37 +61,35 @@ def download_and_plot():
     
     view = mv.geoview(
         map_area_definition="corners",
-        area=[43.5, 6.0, 46.8, 10.5], # Piemonte
+        area=[43.5, 6.0, 46.8, 10.5], 
         coastlines=coast,
         subpage_y_position=12,
         subpage_y_length=72
     )
 
-    # STILE PRECIPITAZIONI: Livelli fissi con colori classici da mappa pluviometrica
+    # STILE PRECIPITAZIONI
     tp_style = mv.mcont(
         legend="on",
-        contour="off", # Niente linee per la pioggia, solo colore
+        contour="off", 
         contour_shade="on",
         contour_shade_technique="polygon_shading",
         contour_level_selection_type="level_list",
-        # La scala parte da 0.5 mm in modo da lasciare trasparenti i valori di pioviggine insignificanti
         contour_level_list=[0.5, 2, 5, 10, 20, 30, 50, 75, 100, 150, 200],
         contour_shade_colour_method="list",
         contour_shade_colour_list=[
-            "RGB(0.7, 0.9, 1.0)",  # Azzurro chiarissimo (0.5 - 2 mm)
-            "RGB(0.4, 0.7, 1.0)",  # Azzurro (2 - 5 mm)
-            "RGB(0.1, 0.4, 1.0)",  # Blu (5 - 10 mm)
-            "RGB(0.0, 0.2, 0.7)",  # Blu scuro (10 - 20 mm)
-            "RGB(0.2, 0.8, 0.2)",  # Verde (20 - 30 mm)
-            "RGB(0.0, 0.5, 0.0)",  # Verde scuro (30 - 50 mm)
-            "RGB(1.0, 1.0, 0.0)",  # Giallo (50 - 75 mm)
-            "RGB(1.0, 0.6, 0.0)",  # Arancione (75 - 100 mm)
-            "RGB(1.0, 0.0, 0.0)",  # Rosso (100 - 150 mm)
-            "RGB(0.6, 0.0, 0.6)"   # Viola (150 - 200 mm)
+            "RGB(0.7, 0.9, 1.0)",  
+            "RGB(0.4, 0.7, 1.0)",  
+            "RGB(0.1, 0.4, 1.0)",  
+            "RGB(0.0, 0.2, 0.7)",  
+            "RGB(0.2, 0.8, 0.2)",  
+            "RGB(0.0, 0.5, 0.0)",  
+            "RGB(1.0, 1.0, 0.0)",  
+            "RGB(1.0, 0.6, 0.0)",  
+            "RGB(1.0, 0.0, 0.0)",  
+            "RGB(0.6, 0.0, 0.6)"   
         ]
     )
     
-    # Legenda orizzontale
     legend = mv.mlegend(
         legend_display_type="continuous",
         legend_box_mode="positional",
@@ -106,7 +102,7 @@ def download_and_plot():
     
     title = mv.mtext(
         text_lines=[
-            "Precipitazione Accumulata in 48h (mm) - ECMWF Ensemble Mean",
+            "Precipitazione Accumulata in 48h (mm) - ECMWF HRES",
             "Inizio: 25 Lug 00:00 UTC  |  Fine: 26 Lug 23:59 UTC (Run Base: 23 Lug 2026 00:00 UTC)"
         ],
         text_font_size=0.45,
@@ -132,7 +128,7 @@ def invia_telegram():
         return
         
     url = f"https://api.telegram.org/bot{token}/sendPhoto"
-    payload = {"chat_id": chat_id, "caption": "Media Scenari ECMWF - Accumulo 48h (25-26 Luglio)"}
+    payload = {"chat_id": chat_id, "caption": "Accumulo Precipitazioni 48h (25-26 Luglio) - ECMWF HRES"}
     
     file_path = f"{PNG_OUTPUT}.1.png"
     
