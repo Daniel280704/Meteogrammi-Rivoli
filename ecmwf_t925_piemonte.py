@@ -14,7 +14,7 @@ def download_and_plot():
     client = Client("ecmwf", beta=False)
     
     # Run di partenza: 23 Luglio 00:00 UTC
-    # Target: 26 Luglio 00:00 UTC (02:00 CEST) -> Differenza esatta: 72 ore
+    # Target: 26 Luglio 00:00 UTC (02:00 CEST)
     base_date = datetime(2026, 7, 23, 0, 0)
     step_hours = 72
 
@@ -27,7 +27,7 @@ def download_and_plot():
             type="fc",
             levtype="pl",
             levelist=[925],
-            param=['t'], # Solo Temperatura
+            param=['t'], 
             target=FILENAME
         )
     except Exception as e:
@@ -40,11 +40,9 @@ def download_and_plot():
 
     data = mv.read(FILENAME)
     
-    # 1. Estrazione e CONVERSIONE IN CELSIUS
     t925_kelvin = data.select(shortName='t', level=925)
     t925_celsius = t925_kelvin - 273.15 
     
-    # 2. Impostazione della mappa (Corretti i parametri land/sea shade)
     coast = mv.mcoast(
         map_coastline_colour="black",
         map_coastline_thickness=2,
@@ -55,8 +53,8 @@ def download_and_plot():
         map_administrative_boundaries="on", 
         map_administrative_boundaries_colour="RGB(0.2, 0.2, 0.2)",
         map_administrative_boundaries_thickness=1,
-        map_coastline_land_shade="off",  # <-- CORRETTO
-        map_coastline_sea_shade="off",   # <-- CORRETTO
+        map_coastline_land_shade="off",
+        map_coastline_sea_shade="off",
         map_grid="off",
         map_label="off"
     )
@@ -67,7 +65,7 @@ def download_and_plot():
         coastlines=coast
     )
 
-    # 3. Stile Temperatura
+    # Stile Temperatura: aggiunta la tinta unita (area_fill) e scala modificata
     t925_style = mv.mcont(
         legend="on",
         contour="on",
@@ -80,24 +78,25 @@ def download_and_plot():
         contour_label_colour="black",
         contour_shade="on",
         contour_shade_technique="polygon_shading",
+        contour_shade_method="area_fill", # <-- FORZA IL COLORE A TINTA UNITA PIENA
         contour_level_selection_type="interval",
         contour_interval=1.0,    
         contour_shade_colour_method="calculate",
-        contour_shade_min_level=-10.0,
-        contour_shade_max_level=35.0,
+        contour_shade_min_level=-15.0, # <-- SCALA AGGIORNATA
+        contour_shade_max_level=40.0,  # <-- SCALA AGGIORNATA
         contour_shade_min_level_colour="purple",
         contour_shade_max_level_colour="red",
         contour_shade_colour_direction="clockwise" 
     )
     
-    # Configurazione Legenda in basso
+    # Legenda spostata verso il basso (coordinata y negativa)
     legend = mv.mlegend(
         legend_display_type="continuous",
         legend_box_mode="positional",
-        legend_box_x_position=1.0,
-        legend_box_y_position=0.5,
+        legend_box_x_position=0.5,
+        legend_box_y_position=-1.5, # <-- PIU' IN BASSO
         legend_box_x_length=20.0,
-        legend_box_y_length=2.0,
+        legend_box_y_length=1.5,
         legend_text_font_size=0.4
     )
     
@@ -117,7 +116,6 @@ def download_and_plot():
     )
     
     mv.setoutput(png)
-    
     mv.plot(view, t925_celsius, t925_style, legend, title)
     return True
 
@@ -130,7 +128,7 @@ def invia_telegram():
         return
         
     url = f"https://api.telegram.org/bot{token}/sendPhoto"
-    payload = {"chat_id": chat_id, "caption": "Mappa Termica ECMWF (925 hPa) - Valida per Dom 26/07 02:00 CEST"}
+    payload = {"chat_id": chat_id, "caption": "Mappa Termica ECMWF (925 hPa) - Tinta unita"}
     
     file_path = f"{PNG_OUTPUT}.1.png"
     
@@ -138,11 +136,8 @@ def invia_telegram():
         try:
             with open(file_path, "rb") as photo:
                 requests.post(url, data=payload, files={"photo": photo})
-                print("Inviato su Telegram!")
-        except Exception as e:
-            print(f"Errore invio Telegram: {e}")
-    else:
-        print(f"File {file_path} non trovato.")
+        except Exception:
+            pass
 
 if __name__ == "__main__":
     if download_and_plot():
