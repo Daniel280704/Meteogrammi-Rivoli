@@ -1,9 +1,7 @@
 name: ECMWF Piemonte Map 925hPa
 
 on:
-  schedule:
-    - cron: '0 1,7,13,19 * * *'
-  workflow_dispatch: 
+  workflow_dispatch: # Questo permette di avviare lo script a mano quando serve
 
 jobs:
   run-ecmwf-piemonte:
