@@ -214,7 +214,27 @@ def genera_mappe_metview(dt_run_utc, nome_run, grib_files, target_start, target_
     
     print(f"\nElaborazione mappa in Metview: (Step run: +{step_start}h / +{step_end}h)")
     
-    data = mv.read(grib_files)
+    print(f"\nCaricamento di {len(grib_files)} file GRIB in Metview...")
+    data = None
+    
+    for f in grib_files:
+        # Controllo di sicurezza: scartiamo i file fantasma (errori XML di AWS)
+        if os.path.exists(f) and os.path.getsize(f) > 5000:
+            try:
+                temp_fs = mv.read(f)
+                if data is None:
+                    data = temp_fs
+                else:
+                    data = data + temp_fs # Unisce i vari GRIB in un unico contenitore
+            except Exception as e:
+                print(f"⚠️ Errore di Metview nella lettura del file {f}: {e}")
+        else:
+            print(f"⚠️ File saltato (corrotto, vuoto o errore XML): {f}")
+
+    # Se dopo il ciclo non abbiamo nulla di valido, fermiamo lo script
+    if data is None or len(data) == 0:
+        print("❌ ERRORE CRITICO: Nessun file GRIB2 valido da processare. Uscita.")
+        return
     
     coast = mv.mcoast(
         map_coastline_colour="brown", map_coastline_thickness=2, map_coastline_resolution="high",
