@@ -33,7 +33,6 @@ def estrai_limiti_run(hourly_data: dict, ref_param: str, utc_offset_sec: int):
     if end_idx == -1: return False, "", None, ""
 
     ultima_ora_valida_str = times[end_idx]
-
     dt_end_local = datetime.fromisoformat(ultima_ora_valida_str)
     dt_end_utc = dt_end_local - timedelta(seconds=utc_offset_sec)
     
@@ -42,6 +41,7 @@ def estrai_limiti_run(hourly_data: dict, ref_param: str, utc_offset_sec: int):
 
     nome_run = dt_run_utc.strftime("%H") + "Z"
     
+    # Controlliamo se abbiamo già tracciato l'elaborazione
     if os.path.exists(FILE_LAST_HOUR):
         with open(FILE_LAST_HOUR, "r") as f:
             ultima_ora_salvata = f.read().strip()
@@ -49,7 +49,7 @@ def estrai_limiti_run(hourly_data: dict, ref_param: str, utc_offset_sec: int):
             print(f"✅ Run ICON-CH2 {nome_run} già elaborato per l'evento.")
             return False, "", None, ""
 
-    # Ritorniamo la stringa da salvare, ma NON la salviamo ancora. Lo farà il main() alla fine.
+    # Restituiamo i dati, ma non salviamo il file .txt qui!
     return True, nome_run, dt_run_utc, ultima_ora_valida_str
 
 def fetch_dati_openmeteo() -> dict:
@@ -63,7 +63,7 @@ def fetch_dati_openmeteo() -> dict:
         "past_days": 1,
         "forecast_days": 6 
     }
-    headers = {"User-Agent": "MeteoBot-ICONCH2-Evento/10.0"}
+    headers = {"User-Agent": "MeteoBot-ICONCH2-Evento/11.0"}
 
     for tentativo in range(3):
         try:
@@ -90,6 +90,7 @@ def scarica_grib_stac(dt_run_utc: datetime, target_start: datetime, target_end: 
         current_url = base_url
         params = {"datetime": target_str_z, "limit": 1000} 
         
+        # LOOP DI PAGINAZIONE
         while current_url:
             try:
                 res = requests.get(current_url, params=params, timeout=30)
@@ -99,8 +100,11 @@ def scarica_grib_stac(dt_run_utc: datetime, target_start: datetime, target_end: 
                 features.extend(data.get("features", []))
                 
                 next_link = next((link.get("href") for link in data.get("links", []) if link.get("rel") == "next"), None)
-                current_url = next_link if next_link else None
-                    
+                if next_link:
+                    current_url = next_link
+                    params = {} # Svuotiamo i parametri per evitare query doppie
+                else:
+                    current_url = None
             except Exception as e:
                 print(f"⚠️ Errore API STAC durante la paginazione: {e}")
                 break
@@ -111,13 +115,15 @@ def scarica_grib_stac(dt_run_utc: datetime, target_start: datetime, target_end: 
             ref_time = props.get("forecast:reference_datetime", "")
             feat_str = str(feat)
             
+            # Controllo ultra-flessibile sul Run di riferimento
             if str_run_iso_z in ref_time or ref_time.startswith(str_run_iso_z[:-1]) or str_run_flat in feat_str:
                 for key, asset in feat.get("assets", {}).items():
                     key_upper = key.upper()
                     href = asset.get("href", "")
                     
+                    # Usa "in" per evitare problemi con firme AWS a fine link
                     if ".GRIB2" in href.upper() and "CONSTANTS" not in key_upper:
-                        if "TOT_PR" in key_upper or "TOT_PREC" in key_upper or "PRECIP" in key_upper or "tot_pr" in href.lower():
+                        if "TOT_PR" in key_upper or "TOT_PREC" in key_upper or "PRECIP" in key_upper or "tot_pr" in href.lower() or "tot_prec" in href.lower():
                             if "-perturb" in href.lower():
                                 grib_urls.append(href)
                                 trovato = True
@@ -125,6 +131,7 @@ def scarica_grib_stac(dt_run_utc: datetime, target_start: datetime, target_end: 
                                 break
                             
                 if not trovato:
+                    # Fallback robusto
                     for key, asset in feat.get("assets", {}).items():
                         href = asset.get("href", "")
                         if ".GRIB2" in href.upper() and "-perturb" in href.lower() and ("pr" in href.lower() or "prec" in href.lower()):
@@ -143,25 +150,30 @@ def scarica_grib_stac(dt_run_utc: datetime, target_start: datetime, target_end: 
         return []
 
     grib_files = []
-    print(f"\n📥 Inizio download da AWS...")
+    print(f"\n📥 Inizio download streaming da AWS...")
     for i, file_url in enumerate(grib_urls):
         local_filename = f"icon_ch2_precip_{i}.grib2"
         try:
-            # Rimuoviamo eventuali re-encoding forzati dal link
-            r = requests.get(file_url, stream=True, timeout=60)
+            r = requests.get(file_url, stream=True, timeout=90)
             r.raise_for_status()
             with open(local_filename, 'wb') as f:
                 for chunk in r.iter_content(chunk_size=8192):
                     f.write(chunk)
-                    
-            # 🛡️ CONTROLLO ANTI-FREGATURA AWS
+            
+            # CONTROLLO SICUREZZA 1: Peso minimo
+            if os.path.getsize(local_filename) < 1000000:
+                print(f"❌ File scartato: dimensione troppo piccola (AWS potrebbe aver inviato un errore XML).")
+                os.remove(local_filename)
+                continue
+                
+            # CONTROLLO SICUREZZA 2: Magic Bytes GRIB
             with open(local_filename, 'rb') as f:
                 header = f.read(4)
                 if header != b'GRIB':
-                    print(f"❌ ERRORE: AWS ha negato l'accesso (File non è un GRIB, trovato {header}). Il token STAC potrebbe essere fallato.")
+                    print(f"❌ File scartato: Non è un GRIB valido. Trovato header: {header}")
                     os.remove(local_filename)
-                    continue # Salta questo file per non far esplodere Metview
-                    
+                    continue
+
             grib_files.append(local_filename)
         except Exception as e:
             print(f"Errore download GRIB: {e}")
@@ -181,37 +193,42 @@ def invia_telegram(file_path, caption):
     
     if os.path.exists(file_path):
         try:
-            resp = requests.post(url, data=payload, files={"photo": open(file_path, "rb")})
-            if resp.status_code == 200:
-                print("\n📸 Mappa dell'Evento inviata con successo su Telegram!")
-                return True
+            with open(file_path, "rb") as photo:
+                resp = requests.post(url, data=payload, files={"photo": photo})
+                if resp.status_code == 200:
+                    print("\n📸 Mappa dell'Evento inviata con successo su Telegram!")
+                    return True
+                else:
+                    print(f"Errore invio Telegram: {resp.text}")
         except Exception as e:
-            print(f"Errore invio Telegram: {e}")
+            print(f"Errore di connessione Telegram: {e}")
     else:
-        print(f"File {file_path} non trovato.")
+        print(f"File {file_path} non trovato per l'invio.")
     return False
 
 def genera_mappe_metview(dt_run_utc, nome_run, grib_files, target_start, target_end):
     step_start = int((target_start - dt_run_utc).total_seconds() / 3600)
     step_end = int((target_end - dt_run_utc).total_seconds() / 3600)
     
-    print(f"\nControllo ecCodes e decodifica GRIB (Step: +{step_start}h / +{step_end}h)...")
+    print(f"\nControllo di integrità anti-crash (Step: +{step_start}h / +{step_end}h)...")
     
-    if len(grib_files) < 2:
-        print("❌ Download incompleto o fallito a causa dei token AWS. Uscita sicura.")
-        return False
-
     valid_gribs = []
     for f in grib_files:
         try:
-            subprocess.run(['grib_ls', f], check=True, capture_output=True)
-            print(f"✅ File {f} decodificato e verificato.")
-            valid_gribs.append(f)
-        except subprocess.CalledProcessError:
-            print(f"❌ ERRORE ecCodes: Il file {f} è corrotto. Impossibile processarlo.")
+            # Controllo con grib_ls prima di passarlo a Metview
+            res = subprocess.run(['grib_ls', f], capture_output=True, text=True)
+            if "ERROR" in res.stdout or "ERROR" in res.stderr or "mismatch" in res.stderr:
+                print(f"❌ ERRORE ecCodes: Il file {f} è troncato a metà. Scartato.")
+            elif res.returncode != 0:
+                print(f"❌ ERRORE ecCodes: Decodifica fallita (Return code {res.returncode}).")
+            else:
+                print(f"✅ File {f} perfettamente integro.")
+                valid_gribs.append(f)
+        except Exception as e:
+            print(f"❌ Impossibile validare il file {f}: {e}")
 
     if len(valid_gribs) < 2:
-        print("❌ GRIB incompleti. Uscita per evitare Segmentation Fault.")
+        print("❌ GRIB validi insufficienti. Uscita sicura annullata per impedire il crash.")
         return False
 
     data = None
@@ -220,7 +237,7 @@ def genera_mappe_metview(dt_run_utc, nome_run, grib_files, target_start, target_
             temp_fs = mv.read(f)
             data = temp_fs if data is None else data + temp_fs
         except Exception as e:
-            print(f"⚠️ Errore interno di Metview: {e}")
+            print(f"⚠️ Errore interno di Metview nella lettura: {e}")
             return False
 
     if data is None or len(data) == 0:
@@ -281,12 +298,8 @@ def genera_mappe_metview(dt_run_utc, nome_run, grib_files, target_start, target_
     tp_start = data.select(step=step_start)
     tp_end = data.select(step=step_end)
     
-    # Doppio controllo su quanti membri Ensemble abbiamo letto (devono corrispondere!)
-    print(f" -> Trovati {len(tp_start)} membri per lo step {step_start}h.")
-    print(f" -> Trovati {len(tp_end)} membri per lo step {step_end}h.")
-    
     if len(tp_start) == 0 or len(tp_end) == 0:
-        print(f"❌ Errore: GRIB incompleti in lettura in Metview.")
+        print(f"❌ Errore: GRIB incompleti. Passati a Metview {len(tp_start)} e {len(tp_end)} membri.")
         return False
         
     tp_diff = tp_end - tp_start
@@ -325,6 +338,7 @@ def genera_mappe_metview(dt_run_utc, nome_run, grib_files, target_start, target_
             os.remove(f)
             
     return esito
+
 def main():
     print("Verifica stato Run ICON-CH2 via Open-Meteo...")
     openmeteo_data = fetch_dati_openmeteo()
@@ -338,7 +352,6 @@ def main():
     is_new, nome_run, dt_run_utc, str_to_save = estrai_limiti_run(hourly, "temperature_2m", utc_offset)
     
     if is_new:
-        # Puntamento dritto all'evento del weekend
         target_start = datetime(2026, 7, 25, 12, 0)
         target_end = datetime(2026, 7, 26, 12, 0)
         
@@ -359,14 +372,14 @@ def main():
             print(f"\n🚀 Avvio mapping in Metview per l'evento")
             success = genera_mappe_metview(dt_run_utc, nome_run, grib_files, target_start, target_end)
             
-            # IL FIX: Aggiorniamo il tracking SOLO se tutto fila liscio
+            # Salvataggio nel file solo se l'invio è andato a buon fine
             if success:
                 with open(FILE_LAST_HOUR, "w") as f:
                     f.write(str_to_save)
                 print("Dati tracciati con successo.")
         else:
-            print("\n⚠️ I dati necessari non sono ancora completamente disponibili su AWS.")
-            print("Il run è in fase di upload. La Action riproverà in automatico.")
+            print("\n⚠️ I dati necessari non sono ancora disponibili su AWS.")
+            print("Il run è in fase di upload o il link è scaduto. Riprova al prossimo ciclo.")
     else:
         print("Uscita.")
 
