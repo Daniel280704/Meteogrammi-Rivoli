@@ -127,7 +127,7 @@ def genera_mappe_metview(dt_run_utc, nome_run):
     # Calcoliamo l'indomani a mezzanotte (00:00 UTC)
     indomani_00z = (dt_run_utc + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
     
-    # Preparazione dei livelli grafici
+    # Coste e Confini Regionali (tolti gli shapefile provinciali)
     coast = mv.mcoast(
         map_coastline_colour="brown",
         map_coastline_thickness=2,
@@ -137,21 +137,14 @@ def genera_mappe_metview(dt_run_utc, nome_run):
         map_boundaries_thickness=2,
         map_administrative_boundaries="on", 
         map_administrative_boundaries_colour="brown",
-        map_administrative_boundaries_thickness=2,
-        
-        # --- CARICAMENTO SHAPEFILE PROVINCE ISTAT ---
-        map_user_layer="on",
-        map_user_layer_name="shapefiles/ProvCM01012026_WGS84.shp", 
-        map_user_layer_colour="brown",
-        map_user_layer_thickness=1,
-        
+        map_administrative_boundaries_thickness=1, # Spessore regionale rimesso fine
         map_coastline_land_shade="off", 
         map_coastline_sea_shade="off",
         map_grid="off",
         map_label="off"
     )
     
-    # IMPAGINAZIONE: Mappa stretta al 75% della larghezza per far spazio alla legenda a destra
+    # IMPAGINAZIONE
     view = mv.geoview(
         map_area_definition="corners",
         area=[43.5, 6.0, 46.8, 10.5], 
@@ -174,12 +167,8 @@ def genera_mappe_metview(dt_run_utc, nome_run):
     )
 
     stile_capoluoghi = mv.msymb(
-        legend="off",
-        symbol_type="text",
-        symbol_text_list=sigle,
-        symbol_text_font_colour="brown",
-        symbol_text_font_size=0.5,
-        symbol_text_font_style="bold"
+        legend="off", symbol_type="text", symbol_text_list=sigle,
+        symbol_text_font_colour="brown", symbol_text_font_size=0.5, symbol_text_font_style="bold"
     )
 
     # RIVOLI
@@ -193,49 +182,43 @@ def genera_mappe_metview(dt_run_utc, nome_run):
     )
 
     stile_rivoli = mv.msymb(
-        legend="off",
-        symbol_type="marker",
-        symbol_colour="brown",     
-        symbol_height=0.4,
-        symbol_marker_index=15     
+        legend="off", symbol_type="marker", symbol_colour="brown", 
+        symbol_height=0.4, symbol_marker_index=15     
     )
 
-    # STILE PIOGGIA: Tinta unita forzata (area_fill), scala personalizzata
+    # STILE PIOGGIA DETTAGLIATO (Da 1 mm in su)
     tp_style = mv.mcont(
         legend="on",                  
         contour="off",                
         contour_shade="on",           
         contour_shade_technique="polygon_shading",
-        contour_shade_method="area_fill",   # <-- Forzatura tinta unita per spegnere il dot shading!
+        contour_shade_method="area_fill",
         contour_level_selection_type="level_list",
-        contour_level_list=[0.5, 2, 5, 10, 15, 20, 30, 40, 50, 65, 80, 100, 150, 300],
+        contour_level_list=[1, 2, 5, 10, 15, 20, 25, 30, 40, 50, 60, 80, 100, 150, 200, 300], # 16 valori = 15 colori
         contour_shade_colour_method="list",
         contour_shade_colour_list=[
-            "RGB(0.6, 0.8, 1.0)",  
-            "RGB(0.0, 0.3, 1.0)",  
-            "RGB(0.4, 0.9, 0.4)",  
-            "RGB(0.0, 0.6, 0.0)",  
-            "RGB(1.0, 0.9, 0.0)",  
-            "RGB(0.9, 0.7, 0.0)",  
-            "RGB(1.0, 0.6, 0.0)",  
-            "RGB(1.0, 0.4, 0.0)",  
-            "RGB(1.0, 0.2, 0.2)",  
-            "RGB(0.7, 0.0, 0.0)",  
-            "RGB(0.8, 0.2, 1.0)",  
-            "RGB(0.5, 0.0, 0.8)",  
-            "RGB(0.3, 0.0, 0.5)"   
+            "RGB(0.6, 0.8, 1.0)",  # 1-2
+            "RGB(0.0, 0.3, 1.0)",  # 2-5
+            "RGB(0.4, 0.9, 0.4)",  # 5-10
+            "RGB(0.0, 0.6, 0.0)",  # 10-15
+            "RGB(0.6, 0.8, 0.0)",  # 15-20 (Verde/Giallo)
+            "RGB(1.0, 0.9, 0.0)",  # 20-25 (Giallo)
+            "RGB(0.9, 0.7, 0.0)",  # 25-30
+            "RGB(1.0, 0.6, 0.0)",  # 30-40 (Arancio chiaro)
+            "RGB(1.0, 0.4, 0.0)",  # 40-50 (Arancio scuro)
+            "RGB(1.0, 0.2, 0.0)",  # 50-60 (Rosso/Arancio)
+            "RGB(1.0, 0.2, 0.2)",  # 60-80 (Rosso chiaro)
+            "RGB(0.7, 0.0, 0.0)",  # 80-100 (Rosso scuro)
+            "RGB(0.8, 0.2, 1.0)",  # 100-150
+            "RGB(0.5, 0.0, 0.8)",  # 150-200
+            "RGB(0.3, 0.0, 0.5)"   # > 200
         ]
     )
     
-    # LEGENDA IN VERTICALE A DESTRA
     legend = mv.mlegend(
-        legend_display_type="continuous",
-        legend_box_mode="positional",
-        legend_box_x_position=26.5,  
-        legend_box_y_position=3.0,   
-        legend_box_x_length=1.5,     
-        legend_box_y_length=14.0,    
-        legend_text_font_size=0.4
+        legend_display_type="continuous", legend_box_mode="positional",
+        legend_box_x_position=26.5, legend_box_y_position=3.0,   
+        legend_box_x_length=1.5, legend_box_y_length=14.0, legend_text_font_size=0.4
     )
 
     # Ciclo di generazione per 10 giorni
@@ -273,11 +256,13 @@ def genera_mappe_metview(dt_run_utc, nome_run):
         tp_diff_mm = (tp_end - tp_start) * 1000
         tp_mean_mm = mv.mean(tp_diff_mm)
 
-        title_text = f"{target_start.strftime('%d/%m/%Y')} - {target_end.strftime('%d/%m/%Y')}"
+        str_run = dt_run_utc.strftime('%d/%m/%Y %H:%M')
+        str_valida = f"{target_start.strftime('%d/%m/%Y')} - {target_end.strftime('%d/%m/%Y')}"
+
         title = mv.mtext(
             text_lines=[
-                "ECMWF ENS - precipitazioni 24 ore", 
-                title_text
+                f"ECMWF ENS - precipitazioni 24 ore (Run: {str_run} UTC)", 
+                str_valida
             ], 
             text_font_size=0.5, text_colour='black'
         )
@@ -288,15 +273,15 @@ def genera_mappe_metview(dt_run_utc, nome_run):
         
         # Invio su Telegram
         file_generato = f"{PNG_OUTPUT}.1.png"
-        caption = f"🌧 Precipitazioni 24h: {title_text} (Media Ensemble)"
+        caption = f"🌧 Precipitazioni 24h: {str_valida}\n⚙️ Run ENS: {str_run} UTC"
         invia_telegram(file_generato, caption)
         
-        # Pulizia file temporanei per non saturare lo storage
+        # Pulizia file temporanei
         os.remove(GRIB_FILE)
         if os.path.exists(file_generato):
             os.remove(file_generato)
         
-        # Attesa di 15 secondi tra una foto e l'altra per evitare flood su Telegram
+        # Attesa per i limiti di Telegram
         if i < 9:
             print("⏳ Pausa di 15 secondi per i limiti di Telegram...")
             time.sleep(15)
