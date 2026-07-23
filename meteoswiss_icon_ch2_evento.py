@@ -41,7 +41,6 @@ def estrai_limiti_run(hourly_data: dict, ref_param: str, utc_offset_sec: int):
 
     nome_run = dt_run_utc.strftime("%H") + "Z"
     
-    # Controlliamo se abbiamo già tracciato l'elaborazione
     if os.path.exists(FILE_LAST_HOUR):
         with open(FILE_LAST_HOUR, "r") as f:
             ultima_ora_salvata = f.read().strip()
@@ -49,7 +48,6 @@ def estrai_limiti_run(hourly_data: dict, ref_param: str, utc_offset_sec: int):
             print(f"✅ Run ICON-CH2 {nome_run} già elaborato per l'evento.")
             return False, "", None, ""
 
-    # Restituiamo i dati, ma non salviamo il file .txt qui!
     return True, nome_run, dt_run_utc, ultima_ora_valida_str
 
 def fetch_dati_openmeteo() -> dict:
@@ -63,7 +61,7 @@ def fetch_dati_openmeteo() -> dict:
         "past_days": 1,
         "forecast_days": 6 
     }
-    headers = {"User-Agent": "MeteoBot-ICONCH2-Evento/11.0"}
+    headers = {"User-Agent": "MeteoBot-ICONCH2-Evento/12.0"}
 
     for tentativo in range(3):
         try:
@@ -90,7 +88,6 @@ def scarica_grib_stac(dt_run_utc: datetime, target_start: datetime, target_end: 
         current_url = base_url
         params = {"datetime": target_str_z, "limit": 1000} 
         
-        # LOOP DI PAGINAZIONE
         while current_url:
             try:
                 res = requests.get(current_url, params=params, timeout=30)
@@ -102,7 +99,7 @@ def scarica_grib_stac(dt_run_utc: datetime, target_start: datetime, target_end: 
                 next_link = next((link.get("href") for link in data.get("links", []) if link.get("rel") == "next"), None)
                 if next_link:
                     current_url = next_link
-                    params = {} # Svuotiamo i parametri per evitare query doppie
+                    params = {} 
                 else:
                     current_url = None
             except Exception as e:
@@ -115,29 +112,18 @@ def scarica_grib_stac(dt_run_utc: datetime, target_start: datetime, target_end: 
             ref_time = props.get("forecast:reference_datetime", "")
             feat_str = str(feat)
             
-            # Controllo ultra-flessibile sul Run di riferimento
             if str_run_iso_z in ref_time or ref_time.startswith(str_run_iso_z[:-1]) or str_run_flat in feat_str:
                 for key, asset in feat.get("assets", {}).items():
-                    key_upper = key.upper()
                     href = asset.get("href", "")
                     
-                    # Usa "in" per evitare problemi con firme AWS a fine link
-                    if ".GRIB2" in href.upper() and "CONSTANTS" not in key_upper:
-                        if "TOT_PR" in key_upper or "TOT_PREC" in key_upper or "PRECIP" in key_upper or "tot_pr" in href.lower() or "tot_prec" in href.lower():
-                            if "-perturb" in href.lower():
-                                grib_urls.append(href)
-                                trovato = True
-                                print(f" -> OK: Variabile Pioggia EPS individuata [{key}]")
-                                break
-                            
-                if not trovato:
-                    # Fallback robusto
-                    for key, asset in feat.get("assets", {}).items():
-                        href = asset.get("href", "")
-                        if ".GRIB2" in href.upper() and "-perturb" in href.lower() and ("pr" in href.lower() or "prec" in href.lower()):
+                    # Filtro chirurgico: SOLO file GRIB Perturbati e con la stringa esatta di precipitazione
+                    if ".GRIB2" in href.upper() and "-perturb" in href.lower():
+                        if "tot_prec" in href.lower() or "tot_pr" in href.lower():
                             grib_urls.append(href)
                             trovato = True
-                            print(f" -> OK: Selezionato GRIB precipitazione EPS per fallback [{key}]")
+                            # Puliamo il nome per il print
+                            file_puro = href.split('/')[-1].split('?')[0]
+                            print(f" -> OK: Variabile Pioggia EPS individuata [{file_puro}]")
                             break
                             
             if trovato:
@@ -160,17 +146,15 @@ def scarica_grib_stac(dt_run_utc: datetime, target_start: datetime, target_end: 
                 for chunk in r.iter_content(chunk_size=8192):
                     f.write(chunk)
             
-            # CONTROLLO SICUREZZA 1: Peso minimo
             if os.path.getsize(local_filename) < 1000000:
-                print(f"❌ File scartato: dimensione troppo piccola (AWS potrebbe aver inviato un errore XML).")
+                print(f"❌ File scartato: dimensione troppo piccola.")
                 os.remove(local_filename)
                 continue
                 
-            # CONTROLLO SICUREZZA 2: Magic Bytes GRIB
             with open(local_filename, 'rb') as f:
                 header = f.read(4)
                 if header != b'GRIB':
-                    print(f"❌ File scartato: Non è un GRIB valido. Trovato header: {header}")
+                    print(f"❌ File scartato: Non è un GRIB valido.")
                     os.remove(local_filename)
                     continue
 
@@ -215,20 +199,18 @@ def genera_mappe_metview(dt_run_utc, nome_run, grib_files, target_start, target_
     valid_gribs = []
     for f in grib_files:
         try:
-            # Controllo con grib_ls prima di passarlo a Metview
+            # Abbiamo rimosso il blocco per la parola "mismatch" perché è un falso positivo di MeteoSvizzera
             res = subprocess.run(['grib_ls', f], capture_output=True, text=True)
-            if "ERROR" in res.stdout or "ERROR" in res.stderr or "mismatch" in res.stderr:
-                print(f"❌ ERRORE ecCodes: Il file {f} è troncato a metà. Scartato.")
-            elif res.returncode != 0:
-                print(f"❌ ERRORE ecCodes: Decodifica fallita (Return code {res.returncode}).")
+            if res.returncode != 0:
+                print(f"❌ ERRORE ecCodes: Decodifica fallita in grib_ls (Return code {res.returncode}).")
             else:
-                print(f"✅ File {f} perfettamente integro.")
+                print(f"✅ File {f} perfettamente integro secondo ecCodes.")
                 valid_gribs.append(f)
         except Exception as e:
             print(f"❌ Impossibile validare il file {f}: {e}")
 
     if len(valid_gribs) < 2:
-        print("❌ GRIB validi insufficienti. Uscita sicura annullata per impedire il crash.")
+        print("❌ GRIB validi insufficienti. Uscita sicura annullata per impedire il crash di Metview.")
         return False
 
     data = None
@@ -372,7 +354,6 @@ def main():
             print(f"\n🚀 Avvio mapping in Metview per l'evento")
             success = genera_mappe_metview(dt_run_utc, nome_run, grib_files, target_start, target_end)
             
-            # Salvataggio nel file solo se l'invio è andato a buon fine
             if success:
                 with open(FILE_LAST_HOUR, "w") as f:
                     f.write(str_to_save)
