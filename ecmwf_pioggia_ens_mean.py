@@ -43,7 +43,7 @@ def download_and_plot():
     # 2. Calcoliamo la MEDIA di tutti i 50 scenari
     tp_mean_mm = mv.mean(tp_diff_mm)
     
-    # CONFINI GEOGRAFICI MARRONI
+    # CONFINI GEOGRAFICI MARRONI + SHAPEFILE PROVINCE
     coast = mv.mcoast(
         map_coastline_colour="brown",
         map_coastline_thickness=2,
@@ -53,7 +53,14 @@ def download_and_plot():
         map_boundaries_thickness=2,
         map_administrative_boundaries="on", 
         map_administrative_boundaries_colour="brown",
-        map_administrative_boundaries_thickness=1,
+        map_administrative_boundaries_thickness=2, # Regioni più spesse (2)
+        
+        # --- CARICAMENTO SHAPEFILE PROVINCE ---
+        map_user_layer="on",
+        map_user_layer_name="shapefiles/province.shp", # Assicurati che il file caricato su GitHub si chiami così
+        map_user_layer_colour="brown",
+        map_user_layer_thickness=1, # Province più sottili (1)
+        
         map_coastline_land_shade="off", 
         map_coastline_sea_shade="off",
         map_grid="off",
@@ -102,23 +109,21 @@ def download_and_plot():
     stile_rivoli = mv.msymb(
         legend="off",
         symbol_type="marker",
-        symbol_colour="brown",     # Pallino marrone in tinta con le sigle
+        symbol_colour="brown",     
         symbol_height=0.4,
-        symbol_marker_index=15     # Indice 15: cerchio pieno
+        symbol_marker_index=15     
     )
 
-    # STILE PIOGGIA: Tinta unita, scala personalizzata (parte da 0.5mm)
+    # STILE PIOGGIA: Tinta unita, scala personalizzata (parte da 5mm)
     tp_style = mv.mcont(
         legend="on",                  
         contour="off",                
         contour_shade="on",           
         contour_shade_technique="polygon_shading",
         contour_level_selection_type="level_list",
-        contour_level_list=[0.5, 2, 5, 10, 15, 20, 30, 40, 50, 65, 80, 100, 150],
+        contour_level_list=[5, 10, 15, 20, 30, 40, 50, 65, 80, 100, 150], # Valori inferiori a 5mm restano trasparenti
         contour_shade_colour_method="list",
-        contour_shade_colour_list=[
-            "RGB(0.6, 0.8, 1.0)",  
-            "RGB(0.0, 0.3, 1.0)",  
+        contour_shade_colour_list=[ 
             "RGB(0.4, 0.9, 0.4)",  
             "RGB(0.0, 0.6, 0.0)",  
             "RGB(1.0, 0.9, 0.0)",  
@@ -158,7 +163,7 @@ def download_and_plot():
     
     mv.setoutput(png)
     
-    # Plot finale: mappa, dati, capoluoghi, pallino di Rivoli, legenda e titolo
+    # Plot finale
     mv.plot(view, tp_mean_mm, tp_style, capoluoghi, stile_capoluoghi, rivoli_point, stile_rivoli, legend, title)
     return True
 
@@ -171,7 +176,7 @@ def invia_telegram():
         return
         
     url = f"https://api.telegram.org/bot{token}/sendPhoto"
-    payload = {"chat_id": chat_id, "caption": "Media Scenari ENS (50 Spaghi) - Precipitazioni 48h"}
+    payload = {"chat_id": chat_id, "caption": "Media Scenari ENS (50 Spaghi) - Precipitazioni 48h (>= 5mm)"}
     
     file_path = f"{PNG_OUTPUT}.1.png"
     
