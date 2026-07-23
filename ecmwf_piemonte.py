@@ -3,20 +3,31 @@ import requests
 import metview as mv
 from ecmwf.opendata import Client
 import warnings
+from datetime import datetime, timedelta
 
 warnings.filterwarnings('ignore', category=RuntimeWarning)
 
-FILENAME = "piemonte-z925-t925.grib"
-PNG_OUTPUT = "piemonte-z925-t925"
+FILENAME = "piemonte-z925-t925-custom.grib"
+PNG_OUTPUT = "piemonte-z925-t925-custom"
 
 def download_and_plot():
     client = Client("ecmwf", beta=False)
     
+    # Oggi è il 23 Luglio. Usiamo il run del 2026-07-23 alle 00:00 UTC come base.
+    base_date = datetime(2026, 7, 23, 0, 0) 
+    
+    # Target: 26 luglio 00:00 UTC (corrispondono alle 02:00 di notte in Italia - CEST)
+    target_date = datetime(2026, 7, 26, 0, 0) 
+    
+    # Calcolo step in ore
+    diff = target_date - base_date
+    step_hours = int(diff.total_seconds() / 3600)
+
     try:
-        # Scarica Geopotenziale (gh) e Temperatura (t) a 925 hPa
         client.retrieve(
-            time=0,
-            step=12,
+            date=base_date.strftime("%Y%m%d"),
+            time=base_date.hour,
+            step=step_hours,
             stream="oper",
             type="fc",
             levtype="pl",
@@ -43,65 +54,78 @@ def download_and_plot():
     # Visuale focalizzata sul Piemonte
     coast = mv.mcoast(
         map_coastline_colour="charcoal",
-        map_coastline_resolution="high",  # Risoluzione alta per mappe regionali
-        map_coastline_land_shade="on",
-        map_coastline_land_shade_colour="cream",
+        map_coastline_resolution="high",
+        map_coastline_land_shade="off", # Niente colore sulla terra per far vedere i geopotenziali
         map_coastline_sea_shade="off",
         map_boundaries="on",
         map_boundaries_colour="charcoal",
         map_boundaries_thickness=1,
         map_disputed_boundaries="off",
-        map_grid_colour="tan",
+        map_grid_colour="grey",
+        map_grid_line_style="dash",
         map_label_height=0.35,
     )
     
     view = mv.geoview(
         map_area_definition="corners",
-        area=[44.0, 6.5, 46.5, 9.5], # Sud, Ovest, Nord, Est
+        area=[43.5, 6.0, 46.5, 10.0], # Sud, Ovest, Nord, Est - Centrato sul Piemonte
         coastlines=coast
     )
 
-    # Stile Temperatura 925 hPa (Dettaglio: 1°C)
-    t925_shade = mv.mcont(
+    # 1. Geopotenziale: Varia col colore (sfumato)
+    gh925_shade = mv.mcont(
         legend="on",
-        contour="off",
+        contour="off", # Niente linee, solo colore
         contour_shade="on",
         contour_shade_technique="polygon_shading",
         contour_level_selection_type="interval",
-        contour_interval=1.0,
+        contour_interval=2.0, # Intervallo sfumatura 2 decametri
         contour_shade_colour_method="calculate",
-        contour_shade_min_level=-25.0,
-        contour_shade_max_level=35.0,
-        contour_shade_min_level_colour="purple",
+        contour_shade_min_level=60.0, 
+        contour_shade_max_level=90.0, 
+        contour_shade_min_level_colour="blue",
         contour_shade_max_level_colour="red",
         contour_shade_colour_direction="clockwise"
     )
-    
-    # Stile Geopotenziale 925 hPa (Isolinee ogni 2 dam per cogliere le sfumature locali)
-    gh925_shade = mv.mcont(
-        legend="on",
+
+    # 2. Temperatura: Solo Isoterme (linee) ben visibili, ogni 1 grado
+    t925_lines = mv.mcont(
+        legend="off",
+        contour="on",
         contour_line_colour="black",
         contour_line_thickness=2,
-        contour_highlight="off",
+        contour_highlight="on", # Linee principali in grassetto ogni 5 gradi
+        contour_highlight_thickness=4,
+        contour_highlight_frequency=5,
         contour_level_selection_type="interval",
-        contour_interval=2.0,
-        contour_label_height=0.3
+        contour_interval=1.0, # Ogni singola isoterma
+        contour_label="on", # Accende l'etichetta del numero sulla linea
+        contour_label_height=0.4,
+        contour_label_frequency=1,
+        contour_label_colour="black",
+        contour_shade="off" # Niente colore riempitivo
     )
     
+    # 3. Titoli espliciti
     title = mv.mtext(
-        text_lines=["Geopotenziale e Temperatura 925 hPa - Piemonte"],
+        text_lines=[
+            "Piemonte - Geopotenziale (Colore) e Temperatura (Isoterme) a 925 hPa",
+            "Data Run Modello: <grib_info key='base-date' format='%d %b %Y %H:%M'/> UTC",
+            "VALIDITA' CARTA: <grib_info key='valid-date' format='%d %b %Y %H:%M'/> UTC (ATTENZIONE: +2 ore per ora locale CEST)"
+        ],
         text_font_size=0.4,
         text_colour='charcoal'
     )
     
     png = mv.png_output(
         output_name=PNG_OUTPUT,
-        output_title="piemonte-z925-t925",
-        output_width=1000
+        output_title="piemonte-custom",
+        output_width=1200 # Aumentata la risoluzione per non sfocare i numeri delle isoterme
     )
     
     mv.setoutput(png)
-    mv.plot(view, t925, t925_shade, gh925, gh925_shade, title)
+    # L'ordine di plot sovrappone le linee nere (t925) sopra i colori (gh925)
+    mv.plot(view, gh925, gh925_shade, t925, t925_lines, title)
     return True
 
 def invia_telegram():
@@ -113,7 +137,7 @@ def invia_telegram():
         return
         
     url = f"https://api.telegram.org/bot{token}/sendPhoto"
-    payload = {"chat_id": chat_id, "caption": "ECMWF T925 + Z925 - Zoom Piemonte (Ris. 1°C)"}
+    payload = {"chat_id": chat_id, "caption": "Mappa 925 hPa Piemonte - Valida per Domenica 26 Luglio ore 02:00 CEST"}
     
     file_path = f"{PNG_OUTPUT}.1.png"
     
