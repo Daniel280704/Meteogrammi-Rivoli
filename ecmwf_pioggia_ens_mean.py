@@ -60,18 +60,20 @@ def download_and_plot():
         map_label="off"
     )
     
-    # IMPAGINAZIONE: Mappa alzata per far spazio alla legenda in basso
+    # IMPAGINAZIONE
     view = mv.geoview(
         map_area_definition="corners",
         area=[43.5, 6.0, 46.8, 10.5], 
         coastlines=coast,
-        subpage_y_position=5,   # Più in alto del solito visto che non c'è il titolo
-        subpage_y_length=80     # Occupa l'80% del foglio
+        subpage_y_position=5,   
+        subpage_y_length=80     
     )
 
-    # CAPOLUOGHI DI PROVINCIA (Punti marroni)
+    # CAPOLUOGHI DI PROVINCIA (Sigle testuali al posto dei pallini)
+    # Ordine esatto geografico: Torino, Cuneo, Asti, Alessandria, Vercelli, Novara, Biella, Verbania
     lats = [45.07, 44.38, 44.90, 44.91, 45.32, 45.45, 45.56, 45.92]
     lons = [7.68,  7.55,  8.20,  8.61,  8.42,  8.61,  8.05,  8.55]
+    sigle = ["TO", "CN", "AT", "AL", "VC", "NO", "BI", "VB"]
 
     capoluoghi = mv.input_visualiser(
         input_plot_type="geo_points",
@@ -79,15 +81,17 @@ def download_and_plot():
         input_latitude_values=lats
     )
 
+    # Stile: Testo marrone in grassetto
     stile_capoluoghi = mv.msymb(
         legend="off",
-        symbol_type="marker",
-        symbol_colour="brown",
-        symbol_height=0.4,
-        symbol_marker_index=15
+        symbol_type="text",
+        symbol_text_list=sigle,
+        symbol_text_font_colour="brown",
+        symbol_text_font_size=0.5,
+        symbol_text_font_style="bold"
     )
 
-    # STILE PIOGGIA: Tinta unita, scala personalizzata
+    # STILE PIOGGIA: Tinta unita, scala personalizzata (parte da 5mm)
     tp_style = mv.mcont(
         legend="on",                  
         contour="off",                
@@ -113,18 +117,18 @@ def download_and_plot():
         ]
     )
     
-    # LEGENDA IN BASSO
+    # LEGENDA IN BASSO (Alzato il valore y da 17.5 a 16.5)
     legend = mv.mlegend(
         legend_display_type="continuous",
         legend_box_mode="positional",
         legend_box_x_position=1.0,   
-        legend_box_y_position=17.5,  
+        legend_box_y_position=16.5,  # <-- Legenda un po' più in alto
         legend_box_x_length=27.0,    
         legend_box_y_length=1.5,     
         legend_text_font_size=0.4
     )
     
-    # TITOLO VUOTO (per nascondere i metadati automatici di Metview)
+    # TITOLO VUOTO 
     title = mv.mtext(
         text_lines=[" "], 
         text_font_size=0.1
