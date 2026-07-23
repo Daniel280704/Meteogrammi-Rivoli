@@ -144,7 +144,7 @@ def scarica_grib_stac(dt_run_utc: datetime, target_start: datetime, target_end: 
                     href = asset.get("href", "")
                     
                     if href.upper().endswith(".GRIB2") and "CONSTANTS" not in key_upper:
-                        if "TOT_PREC" in key_upper or "PRECIP" in key_upper or "TP" in key_upper:
+                        if "TOT_PR" in key_upper or "TOT_PREC" in key_upper or "PRECIP" in key_upper:
                             grib_urls.append(href)
                             trovato = True
                             print(f" -> OK: Variabile Pioggia individuata [{key}]")
