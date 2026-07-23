@@ -95,7 +95,6 @@ def scarica_grib_stac(dt_run_utc: datetime, target_start: datetime, target_end: 
     base_url = "https://data.geo.admin.ch/api/stac/v1/collections/ch.meteoschweiz.ogd-forecasting-icon-ch2/items"
     grib_urls = []
     
-    # Interroghiamo STAC chirurgicamente per le due date target
     for target in [target_start, target_end]:
         target_str_z = target.strftime('%Y-%m-%dT%H:%M:%SZ')
         print(f"\n🔍 Ricerca STAC mirata per validità: {target_str_z}...")
@@ -104,7 +103,6 @@ def scarica_grib_stac(dt_run_utc: datetime, target_start: datetime, target_end: 
         current_url = base_url
         params = {"datetime": target_str_z, "limit": 1000} 
         
-        # CICLO DI PAGINAZIONE: Scarica tutte le pagine di risultati finché ce ne sono
         while current_url:
             try:
                 res = requests.get(current_url, params=params, timeout=30)
@@ -114,7 +112,6 @@ def scarica_grib_stac(dt_run_utc: datetime, target_start: datetime, target_end: 
                 page_features = data.get("features", [])
                 features.extend(page_features)
                 
-                # Cerca il link alla pagina successiva dettato dal server
                 next_link = None
                 for link in data.get("links", []):
                     if link.get("rel") == "next":
@@ -123,9 +120,9 @@ def scarica_grib_stac(dt_run_utc: datetime, target_start: datetime, target_end: 
                         
                 if next_link:
                     current_url = next_link
-                    params = {} # I parametri sono già "iniettati" dal server nel link next
+                    params = {} 
                 else:
-                    current_url = None # Fine delle pagine
+                    current_url = None 
                     
             except Exception as e:
                 print(f"⚠️ Errore API STAC durante la paginazione: {e}")
@@ -133,7 +130,6 @@ def scarica_grib_stac(dt_run_utc: datetime, target_start: datetime, target_end: 
 
         print(f" -> Trovati {len(features)} pacchetti totali (dopo paginazione) per questa esatta ora.")
         
-        # Firme temporali per riconoscere a quale RUN appartiene il pacchetto
         str_run_iso = dt_run_utc.strftime('%Y-%m-%dT%H:%M:%SZ')
         
         trovato = False
@@ -141,7 +137,6 @@ def scarica_grib_stac(dt_run_utc: datetime, target_start: datetime, target_end: 
             props = feat.get("properties", {})
             ref_time = props.get("forecast:reference_datetime", "")
             
-            # Se la firma del nostro run è dentro i metadati del pacchetto...
             if str_run_iso in ref_time or str_run_iso in str(feat):
                 assets = feat.get("assets", {})
                 for key, asset in assets.items():
@@ -149,14 +144,12 @@ def scarica_grib_stac(dt_run_utc: datetime, target_start: datetime, target_end: 
                     href = asset.get("href", "")
                     
                     if href.upper().endswith(".GRIB2") and "CONSTANTS" not in key_upper:
-                        # Cerchiamo la pioggia
                         if "TOT_PREC" in key_upper or "PRECIP" in key_upper or "TP" in key_upper:
                             grib_urls.append(href)
                             trovato = True
                             print(f" -> OK: Variabile Pioggia individuata [{key}]")
                             break
                             
-                # Fallback se la pioggia non è separata nel nome file
                 if not trovato:
                     for key, asset in assets.items():
                         href = asset.get("href", "")
@@ -171,9 +164,11 @@ def scarica_grib_stac(dt_run_utc: datetime, target_start: datetime, target_end: 
                 
         if not trovato:
             print(f" -> Nessun file associato al run del {dt_run_utc.strftime('%d/%m %H:00')} trovato per {target_str_z}.")
+            if target == dt_run_utc:
+                print(" -> Trattandosi dell'inizio del run (step +0h), possiamo ignorarlo: l'accumulo partirà da zero e basterà il file finale.")
 
-    if len(grib_urls) < 2:
-        print(f"\n❌ ERRORE: Impossibile procedere. Trovati solo {len(grib_urls)} link su 2 necessari.")
+    if len(grib_urls) == 0:
+        print(f"\n❌ ERRORE: Impossibile procedere. Nessun link GRIB trovato.")
         return []
 
     grib_files = []
@@ -207,7 +202,7 @@ def invia_telegram(file_path, caption):
         try:
             with open(file_path, "rb") as photo:
                 requests.post(url, data=payload, files={"photo": photo})
-                print("\n📸 Mappa evento inviata con successo su Telegram!")
+                print("\n📸 Mappa prime 24h inviata con successo su Telegram!")
         except Exception as e:
             print(f"Errore invio Telegram: {e}")
     else:
@@ -217,7 +212,7 @@ def genera_mappe_metview(dt_run_utc, nome_run, grib_files, target_start, target_
     step_start = int((target_start - dt_run_utc).total_seconds() / 3600)
     step_end = int((target_end - dt_run_utc).total_seconds() / 3600)
     
-    print(f"\nElaborazione mappa evento in Metview: (Step run: +{step_start}h / +{step_end}h)")
+    print(f"\nElaborazione mappa in Metview: (Step run: +{step_start}h / +{step_end}h)")
     
     data = mv.read(grib_files)
     
@@ -273,14 +268,23 @@ def genera_mappe_metview(dt_run_utc, nome_run, grib_files, target_start, target_
         legend_box_x_length=1.5, legend_box_y_length=14.0, legend_text_font_size=0.4
     )
 
-    tp_start = data.select(step=step_start)
     tp_end = data.select(step=step_end)
-    
-    if len(tp_start) == 0 or len(tp_end) == 0:
-        print(f"Errore: GRIB incompleti in lettura per gli step {step_start} o {step_end}.")
+    if len(tp_end) == 0:
+        print(f"Errore: GRIB incompleti in lettura per lo step finale ({step_end}).")
         return
         
-    tp_diff = tp_end - tp_start
+    tp_start = data.select(step=step_start)
+    
+    if len(tp_start) == 0:
+        if step_start == 0:
+            print(" -> Lo step 0 non contiene il campo precipitazione. Utilizzo direttamente l'accumulo al target finale.")
+            tp_diff = tp_end
+        else:
+            print(f"Errore: GRIB incompleti in lettura per lo step iniziale ({step_start}).")
+            return
+    else:
+        tp_diff = tp_end - tp_start
+        
     tp_mean = mv.mean(tp_diff)
 
     max_val = mv.maxvalue(tp_mean)
@@ -290,11 +294,11 @@ def genera_mappe_metview(dt_run_utc, nome_run, grib_files, target_start, target_
         tp_mean_mm = tp_mean
 
     str_run = dt_run_utc.strftime('%d/%m/%Y %H:%M')
-    str_valida = "25/07/2026 12:00 - 26/07/2026 12:00 UTC"
+    str_valida = f"{target_start.strftime('%d/%m/%Y %H:00')} - {target_end.strftime('%d/%m/%Y %H:00')} UTC"
 
     title = mv.mtext(
         text_lines=[
-            f"ICON-CH2-EPS - Accumulo Precipitativo (Run: {str_run} UTC)", 
+            f"ICON-CH2-EPS - Prime 24h del Run: {str_run} UTC", 
             str_valida
         ], 
         text_font_size=0.5, text_colour='black'
@@ -305,7 +309,7 @@ def genera_mappe_metview(dt_run_utc, nome_run, grib_files, target_start, target_
     mv.plot(view, tp_mean_mm, tp_style, capoluoghi, stile_capoluoghi, rivoli_point, stile_rivoli, legend, title)
     
     file_generato = f"{PNG_OUTPUT}.1.png"
-    caption_foto = f"🌧 EVENTO (24h)\n📅 {str_valida}\n⚙️ Media Ensemble MeteoSvizzera\n🕒 Run: {str_run} UTC"
+    caption_foto = f"🌧 LE PRIME 24 ORE\n📅 {str_valida}\n⚙️ Media Ensemble MeteoSvizzera\n🕒 Run: {str_run} UTC"
     
     invia_telegram(file_generato, caption_foto)
 
@@ -329,13 +333,9 @@ def main():
     is_new, nome_run, dt_run_utc = estrai_limiti_run(hourly, "temperature_2m", utc_offset)
     
     if is_new:
-        target_start = datetime(2026, 7, 25, 12, 0)
-        target_end = datetime(2026, 7, 26, 12, 0)
-        
-        step_end = int((target_end - dt_run_utc).total_seconds() / 3600)
-        if step_end > 120:
-            print(f"L'evento esce dalla coda di previsione a 120h (+{step_end}h). Uscita.")
-            sys.exit(0)
+        # AUTOMATIZZAZIONE: Prendiamo in modo dinamico e garantito le primissime 24 ore dal lancio del Run
+        target_start = dt_run_utc
+        target_end = dt_run_utc + timedelta(hours=24)
         
         grib_files = scarica_grib_stac(dt_run_utc, target_start, target_end)
         if grib_files:
