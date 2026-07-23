@@ -49,10 +49,7 @@ jobs:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          # Imposta la variabile d'ambiente ufficiale
           export ECCODES_DEFINITION_PATH="${{ github.workspace }}/eccodes-cosmo-resources/definitions:$CONDA_PREFIX/share/eccodes/definitions"
-          
-          # Lancio dello script
           python meteoswiss_icon_ch2_evento.py
 
       - name: Commit e Push Tracking Run
