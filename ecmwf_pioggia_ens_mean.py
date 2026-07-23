@@ -69,8 +69,7 @@ def download_and_plot():
         subpage_y_length=80     
     )
 
-    # CAPOLUOGHI DI PROVINCIA (Sigle testuali al posto dei pallini)
-    # Ordine esatto geografico: Torino, Cuneo, Asti, Alessandria, Vercelli, Novara, Biella, Verbania
+    # CAPOLUOGHI DI PROVINCIA (Sigle testuali)
     lats = [45.07, 44.38, 44.90, 44.91, 45.32, 45.45, 45.56, 45.92]
     lons = [7.68,  7.55,  8.20,  8.61,  8.42,  8.61,  8.05,  8.55]
     sigle = ["TO", "CN", "AT", "AL", "VC", "NO", "BI", "VB"]
@@ -81,7 +80,6 @@ def download_and_plot():
         input_latitude_values=lats
     )
 
-    # Stile: Testo marrone in grassetto
     stile_capoluoghi = mv.msymb(
         legend="off",
         symbol_type="text",
@@ -91,7 +89,25 @@ def download_and_plot():
         symbol_text_font_style="bold"
     )
 
-    # STILE PIOGGIA: Tinta unita, scala personalizzata (parte da 5mm)
+    # RIVOLI (Pallino specifico)
+    lat_rivoli = [45.07]
+    lon_rivoli = [7.51]
+
+    rivoli_point = mv.input_visualiser(
+        input_plot_type="geo_points",
+        input_longitude_values=lon_rivoli,
+        input_latitude_values=lat_rivoli
+    )
+
+    stile_rivoli = mv.msymb(
+        legend="off",
+        symbol_type="marker",
+        symbol_colour="brown",     # Pallino marrone in tinta con le sigle
+        symbol_height=0.4,
+        symbol_marker_index=15     # Indice 15: cerchio pieno
+    )
+
+    # STILE PIOGGIA: Tinta unita, scala personalizzata (parte da 0.5mm)
     tp_style = mv.mcont(
         legend="on",                  
         contour="off",                
@@ -117,12 +133,12 @@ def download_and_plot():
         ]
     )
     
-    # LEGENDA IN BASSO (Alzato il valore y da 17.5 a 16.5)
+    # LEGENDA IN BASSO
     legend = mv.mlegend(
         legend_display_type="continuous",
         legend_box_mode="positional",
         legend_box_x_position=1.0,   
-        legend_box_y_position=16.5,  # <-- Legenda un po' più in alto
+        legend_box_y_position=16.5,  
         legend_box_x_length=27.0,    
         legend_box_y_length=1.5,     
         legend_text_font_size=0.4
@@ -142,8 +158,8 @@ def download_and_plot():
     
     mv.setoutput(png)
     
-    # Plot finale
-    mv.plot(view, tp_mean_mm, tp_style, capoluoghi, stile_capoluoghi, legend, title)
+    # Plot finale: mappa, dati, capoluoghi, pallino di Rivoli, legenda e titolo
+    mv.plot(view, tp_mean_mm, tp_style, capoluoghi, stile_capoluoghi, rivoli_point, stile_rivoli, legend, title)
     return True
 
 def invia_telegram():
