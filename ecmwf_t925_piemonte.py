@@ -40,6 +40,7 @@ def download_and_plot():
 
     data = mv.read(FILENAME)
     
+    # Conversione in Celsius
     t925_kelvin = data.select(shortName='t', level=925)
     t925_celsius = t925_kelvin - 273.15 
     
@@ -51,7 +52,7 @@ def download_and_plot():
         map_boundaries_colour="black",
         map_boundaries_thickness=2,
         map_administrative_boundaries="on", 
-        map_administrative_boundaries_colour="RGB(0.2, 0.2, 0.2)",
+        map_administrative_boundaries_colour="RGB(0.3, 0.3, 0.3)",
         map_administrative_boundaries_thickness=1,
         map_coastline_land_shade="off",
         map_coastline_sea_shade="off",
@@ -59,60 +60,62 @@ def download_and_plot():
         map_label="off"
     )
     
+    # IMPAGINAZIONE: Solleviamo la mappa per fare spazio alla legenda in basso
     view = mv.geoview(
         map_area_definition="corners",
         area=[43.5, 6.0, 46.8, 10.5], 
-        coastlines=coast
+        coastlines=coast,
+        subpage_y_position=12,  # Inizia al 12% dall'alto (lascia spazio ai titoli)
+        subpage_y_length=72     # Occupa il 72% dell'altezza (lascia spazio in basso)
     )
 
-    # Stile Temperatura: aggiunta la tinta unita (area_fill) e scala modificata
+    # STILE TEMPERATURA: Tinta unita a scatti di 1°C
     t925_style = mv.mcont(
         legend="on",
         contour="on",
-        contour_line_colour="RGB(0.5, 0.5, 0.5)", 
+        contour_line_colour="RGB(0.4, 0.4, 0.4)", # Grigio per i bordi delle isoterme
         contour_line_thickness=1,
         contour_highlight="off", 
         contour_label="on",      
-        contour_label_height=0.4,
-        contour_label_frequency=1,
+        contour_label_height=0.35,
+        contour_label_frequency=1, # Etichetta su ogni isoterma
         contour_label_colour="black",
         contour_shade="on",
-        contour_shade_technique="polygon_shading",
-        contour_shade_method="area_fill", # <-- FORZA IL COLORE A TINTA UNITA PIENA
+        contour_shade_technique="polygon_shading", # Garantisce la tinta unita (niente puntini)
         contour_level_selection_type="interval",
-        contour_interval=1.0,    
+        contour_interval=1.0,      # Cambia colore esattamente ogni grado
         contour_shade_colour_method="calculate",
-        contour_shade_min_level=-15.0, # <-- SCALA AGGIORNATA
-        contour_shade_max_level=40.0,  # <-- SCALA AGGIORNATA
+        contour_shade_min_level=-15.0,
+        contour_shade_max_level=40.0,
         contour_shade_min_level_colour="purple",
         contour_shade_max_level_colour="red",
-        contour_shade_colour_direction="clockwise" 
+        contour_shade_colour_direction="clockwise" # Genera l'arcobaleno termico
     )
     
-    # Legenda spostata verso il basso (coordinata y negativa)
+    # LEGENDA: Barra orizzontale in basso (stile Meteologix)
     legend = mv.mlegend(
         legend_display_type="continuous",
         legend_box_mode="positional",
-        legend_box_x_position=0.5,
-        legend_box_y_position=-1.5, # <-- PIU' IN BASSO
-        legend_box_x_length=20.0,
-        legend_box_y_length=1.5,
+        legend_box_x_position=1.0,   # Posizionata a 1 cm da sinistra
+        legend_box_y_position=17.5,  # Posizionata molto in basso nel foglio (sotto la mappa)
+        legend_box_x_length=27.0,    # Lunga quasi quanto il foglio
+        legend_box_y_length=1.5,     # Spessore della barra
         legend_text_font_size=0.4
     )
     
     title = mv.mtext(
         text_lines=[
-            "Temperatura 925 hPa (°C)",
+            "Temperatura 925 hPa (°C) - Modello ECMWF HRES",
             "Run: <grib_info key='base-date' format='%d %b %Y %H:%M'/> UTC  |  Valida per: Domenica 26 Luglio 2026, 02:00 CEST"
         ],
-        text_font_size=0.5,
+        text_font_size=0.45,
         text_colour='black'
     )
     
     png = mv.png_output(
         output_name=PNG_OUTPUT,
         output_title="piemonte-t925",
-        output_width=1000
+        output_width=1200 # Aumentato per rendere le scritte più nitide
     )
     
     mv.setoutput(png)
@@ -128,7 +131,7 @@ def invia_telegram():
         return
         
     url = f"https://api.telegram.org/bot{token}/sendPhoto"
-    payload = {"chat_id": chat_id, "caption": "Mappa Termica ECMWF (925 hPa) - Tinta unita"}
+    payload = {"chat_id": chat_id, "caption": "Mappa Termica ECMWF (925 hPa) - Dettaglio 1°C"}
     
     file_path = f"{PNG_OUTPUT}.1.png"
     
@@ -136,8 +139,11 @@ def invia_telegram():
         try:
             with open(file_path, "rb") as photo:
                 requests.post(url, data=payload, files={"photo": photo})
-        except Exception:
-            pass
+                print("Inviato su Telegram!")
+        except Exception as e:
+            print(f"Errore invio Telegram: {e}")
+    else:
+        print(f"File {file_path} non trovato.")
 
 if __name__ == "__main__":
     if download_and_plot():
