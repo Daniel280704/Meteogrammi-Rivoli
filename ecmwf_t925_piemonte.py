@@ -60,47 +60,28 @@ def download_and_plot():
         map_label="off"
     )
     
-    # IMPAGINAZIONE: Solleviamo la mappa per fare spazio alla legenda in basso
     view = mv.geoview(
         map_area_definition="corners",
         area=[43.5, 6.0, 46.8, 10.5], 
-        coastlines=coast,
-        subpage_y_position=12,  # Inizia al 12% dall'alto (lascia spazio ai titoli)
-        subpage_y_length=72     # Occupa il 72% dell'altezza (lascia spazio in basso)
+        coastlines=coast
     )
 
-    # STILE TEMPERATURA: Tinta unita a scatti di 1°C
+    # STILE TEMPERATURA: Solo linee (isoterme), sfondo bianco, niente riempimento
     t925_style = mv.mcont(
-        legend="on",
+        legend="off",                # Legenda completamente disattivata
         contour="on",
-        contour_line_colour="RGB(0.4, 0.4, 0.4)", # Grigio per i bordi delle isoterme
-        contour_line_thickness=1,
-        contour_highlight="off", 
+        contour_line_colour="black", # Linee nere per staccare sul bianco
+        contour_line_thickness=2,
+        contour_highlight="on",      # Linee spesse ogni 5 gradi
+        contour_highlight_thickness=4,
+        contour_highlight_frequency=5,
         contour_label="on",      
-        contour_label_height=0.35,
-        contour_label_frequency=1, # Etichetta su ogni isoterma
+        contour_label_height=0.4,
+        contour_label_frequency=1,
         contour_label_colour="black",
-        contour_shade="on",
-        contour_shade_technique="polygon_shading", # Garantisce la tinta unita (niente puntini)
+        contour_shade="off",         # SPENTO TOTALMENTE IL COLORE/PUNTINATO
         contour_level_selection_type="interval",
-        contour_interval=1.0,      # Cambia colore esattamente ogni grado
-        contour_shade_colour_method="calculate",
-        contour_shade_min_level=-15.0,
-        contour_shade_max_level=40.0,
-        contour_shade_min_level_colour="purple",
-        contour_shade_max_level_colour="red",
-        contour_shade_colour_direction="clockwise" # Genera l'arcobaleno termico
-    )
-    
-    # LEGENDA: Barra orizzontale in basso (stile Meteologix)
-    legend = mv.mlegend(
-        legend_display_type="continuous",
-        legend_box_mode="positional",
-        legend_box_x_position=1.0,   # Posizionata a 1 cm da sinistra
-        legend_box_y_position=17.5,  # Posizionata molto in basso nel foglio (sotto la mappa)
-        legend_box_x_length=27.0,    # Lunga quasi quanto il foglio
-        legend_box_y_length=1.5,     # Spessore della barra
-        legend_text_font_size=0.4
+        contour_interval=1.0         # Isoterma ogni 1 grado
     )
     
     title = mv.mtext(
@@ -115,11 +96,13 @@ def download_and_plot():
     png = mv.png_output(
         output_name=PNG_OUTPUT,
         output_title="piemonte-t925",
-        output_width=1200 # Aumentato per rendere le scritte più nitide
+        output_width=1200
     )
     
     mv.setoutput(png)
-    mv.plot(view, t925_celsius, t925_style, legend, title)
+    
+    # Eliminato l'oggetto 'legend' dal plot
+    mv.plot(view, t925_celsius, t925_style, title)
     return True
 
 def invia_telegram():
@@ -131,7 +114,7 @@ def invia_telegram():
         return
         
     url = f"https://api.telegram.org/bot{token}/sendPhoto"
-    payload = {"chat_id": chat_id, "caption": "Mappa Termica ECMWF (925 hPa) - Dettaglio 1°C"}
+    payload = {"chat_id": chat_id, "caption": "Mappa Termica ECMWF (925 hPa) - Solo Isoterme"}
     
     file_path = f"{PNG_OUTPUT}.1.png"
     
