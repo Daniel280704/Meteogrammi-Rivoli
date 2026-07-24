@@ -196,39 +196,12 @@ def genera_album_cape(dt_run_utc: datetime, nome_run: str):
     my_colors = ["#fff7bc", "#fee391", "#fec44f", "#fe9929", "#ec7014", "#cc4c02", "#8c2d04", "#7a0177"]
     domain = domains.Domain.from_bbox(bbox=bounds.BoundingBox(xmin, xmax, ymin, ymax, ccrs.Geodetic()), name="Piemonte")
 
-    # Gestione ROBUSTA dei confini geografici
-    prov_geoms = []
-    shp_list = glob.glob("**/*ProvCM*.shp", recursive=True)
-    if shp_list:
-        shp_path = shp_list[0]
-        print(f"📍 Usando shapefile: {shp_path}")
-        try:
-            for record in shpreader.Reader(shp_path).records():
-                if any("piemonte" in str(v).lower() for v in record.attributes.values()):
-                    prov_geoms.append(record.geometry)
-            if not prov_geoms:
-                prov_geoms = [r.geometry for r in shpreader.Reader(shp_path).records()]
-        except Exception as e:
-            print(f"⚠️ Errore lettura shapefile: {e}")
-
-    if not prov_geoms:
-        print("📍 Scarico confini Natural Earth...")
-        try:
-            ne_path = shpreader.natural_earth(resolution='10m', category='cultural', name='admin_1_states_provinces')
-            for record in shpreader.Reader(ne_path).records():
-                if record.attributes.get('name', '').lower() == 'piemonte':
-                    prov_geoms.append(record.geometry)
-        except Exception as e:
-            print(f"⚠️ Errore confini Natural Earth: {e}")
-
-    prov_feature, regione_feature = None, None
-    if prov_geoms:
-        prov_feature = cfeature.ShapelyFeature(prov_geoms, ccrs.PlateCarree(), edgecolor='black', facecolor='none', linewidth=0.5, linestyle=':', zorder=10)
-        regione_geom = unary_union(prov_geoms)
-        regione_feature = cfeature.ShapelyFeature([regione_geom], ccrs.PlateCarree(), edgecolor='black', facecolor='none', linewidth=2.0, linestyle='-', zorder=11)
-        print(f"✅ Confini caricati correttamente")
-    else:
-        print("⚠️ Confini non disponibili, userò solo coastlines")
+    # Gestione livelli confini Geografici
+    regions_feature = cfeature.NaturalEarthFeature('cultural', 'admin_1_states_provinces', '10m', edgecolor='black', facecolor='none', linewidth=1.5)
+    prov_feature = None
+    shp_path = "shapefiles/ProvCM01012026_WGS84.shp"
+    if os.path.exists(shp_path):
+        prov_feature = cfeature.ShapelyFeature(shpreader.Reader(shp_path).geometries(), ccrs.PlateCarree(), edgecolor='black', facecolor='none', linewidth=0.5, linestyle=':')
 
     # Dati per capoluoghi
     lats = [45.07, 44.38, 44.90, 44.91, 45.32, 45.45, 45.56, 45.92]
@@ -266,14 +239,17 @@ def genera_album_cape(dt_run_utc: datetime, nome_run: str):
             chart = earthkit.plots.Map(domain=domain)
             chart.grid_cells(cape_geo, x="lon", y="lat", style=Style(colors=my_colors, levels=my_levels))
 
-            if regione_feature: 
-                chart.ax.add_feature(regione_feature)
-            if prov_feature: 
+            # Aggiunta Confini (Regione spessa, Provincia fine)
+            chart.ax.add_feature(regions_feature)
+            if prov_feature:
                 chart.ax.add_feature(prov_feature)
-            chart.coastlines(linewidth=0.5, zorder=9)
+            else:
+                chart.borders()
 
-            # Rivoli e Capoluoghi (zorder 12)
+            # Aggiunta Pallino Rivoli
             chart.ax.plot(7.51, 45.07, marker='o', color='brown', markersize=6, transform=ccrs.PlateCarree(), zorder=12)
+
+            # Aggiunta Capoluoghi con Sigle
             for lon, lat, sigla in zip(lons, lats, sigle):
                 chart.ax.plot(lon, lat, marker='o', color='black', markersize=3, transform=ccrs.PlateCarree(), zorder=12)
                 chart.ax.text(lon + 0.05, lat + 0.05, sigla, color='black', fontsize=9, fontweight='bold', transform=ccrs.PlateCarree(), zorder=12)
