@@ -27,6 +27,8 @@ jobs:
           cd opendata-nwp-demos
           pip install poetry
           poetry config virtualenvs.create false
+          # geopandas aggiunto qui per gestire gli shapefile
+          poetry run pip install geopandas 
           poetry install --no-ansi
 
       - name: Esegui Python Script
@@ -34,7 +36,8 @@ jobs:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          # Copiamo lo script dentro la cartella clonata per accedere alle librerie installate
+          # Copia script E cartella shapefiles nel workspace di lavoro
           cp icon_ch2_ens_map.py opendata-nwp-demos/
+          cp -r shapefiles opendata-nwp-demos/ 2>/dev/null || true
           cd opendata-nwp-demos
           python icon_ch2_ens_map.py
