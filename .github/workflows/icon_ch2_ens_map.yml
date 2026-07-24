@@ -17,12 +17,11 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
-          # Rimossa la cache pip per evitare l'errore di file mancante
 
       - name: Install System Dependencies & ecCodes
         run: |
           sudo apt-get update
-          sudo apt-get install -y eccodes libeccodes-dev
+          sudo apt-get install -y libeccodes-tools libeccodes-dev
 
       - name: Clone COSMO and ECMWF GRIB Definitions
         run: |
@@ -35,7 +34,7 @@ jobs:
       - name: Install Python Packages
         run: |
           pip install --upgrade pip
-          pip install metview requests numpy pandas matplotlib
+          pip install metview requests numpy pandas matplotlib eccodes
 
       - name: Run ICON-CH2 Mapping Script
         env:
