@@ -2,11 +2,14 @@ import os
 import sys
 import time
 import requests
+import urllib3
 import metview as mv
 from datetime import datetime, timedelta
 import warnings
 
+# Disabilita i warning a schermo
 warnings.filterwarnings('ignore', category=RuntimeWarning)
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # Coordinate di Rivoli
 LATITUDE = 45.07347491421504
@@ -16,7 +19,7 @@ FILE_LAST_HOUR = "ultima_ora_icon_ch2_map.txt"
 RUN_DURATION = 120
 START_DELAY = 1
 
-# Base URL del bucket S3 OGD di MeteoSwiss (da verificare in base agli aggiornamenti STAC)
+# Base URL del bucket S3 OGD di MeteoSwiss
 BASE_URL = "https://ch.meteoschweiz.ogd-forecasting-icon-ch2.s3.eu-central-1.amazonaws.com"
 
 def estrai_limiti_run(hourly_data: dict, ref_param: str, utc_offset_sec: int) -> tuple[bool, str, datetime]:
@@ -83,7 +86,8 @@ def scarica_grib_ch2(dt_run_utc: datetime, step: int, var_name: str = "tot_prec"
     
     try:
         print(f"Download {filename}...")
-        r = requests.get(url, stream=True, timeout=60)
+        # Ignora la verifica del certificato SSL per scavalcare l'errore di Hostname mismatch
+        r = requests.get(url, stream=True, timeout=60, verify=False)
         if r.status_code == 200:
             with open(filename, 'wb') as f:
                 for chunk in r.iter_content(chunk_size=8192):
