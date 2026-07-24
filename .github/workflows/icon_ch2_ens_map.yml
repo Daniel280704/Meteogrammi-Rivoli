@@ -1,15 +1,12 @@
-name: Generate ICON-CH2 ENS Maps
+name: Test API STAC (Run Forzato 23/07/2026)
 
 on:
-  schedule:
-    - cron: '15 2,8,14,20 * * *' # Schedulazione allineata indicativamente con i run ICON
   workflow_dispatch:
 
 jobs:
-  build_and_plot:
+  run_stac_test:
     runs-on: ubuntu-latest
     
-    # IMPORTANTE: Necessario per far funzionare correttamente l'ambiente Conda negli step "run"
     defaults:
       run:
         shell: bash -l {0}
@@ -21,14 +18,13 @@ jobs:
       - name: Setup Miniconda
         uses: conda-incubator/setup-miniconda@v3
         with:
-          activate-environment: meteo-env
+          activate-environment: meteo-stac
           python-version: "3.10"
           channels: conda-forge, defaults
           channel-priority: strict
           auto-activate-base: false
 
-      - name: Install Metview and Dependencies via Conda
-        # L'installazione da conda-forge scarica i binari corretti (metview-batch) e i binding Python (metview-python)
+      - name: Install Metview and Dependencies
         run: |
           conda install -y -c conda-forge metview-batch metview-python eccodes requests numpy pandas matplotlib
 
@@ -40,7 +36,7 @@ jobs:
           git clone https://github.com/ecmwf/eccodes.git
           cd ..
 
-      - name: Run ICON-CH2 Mapping Script
+      - name: Esegui Python Script
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
