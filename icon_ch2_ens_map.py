@@ -2,14 +2,12 @@ import os
 import sys
 import time
 import requests
-import urllib3
 import metview as mv
 from datetime import datetime, timedelta
 import warnings
 
-# Disabilita i warning a schermo
+# Disabilita i warning a schermo per Runtime
 warnings.filterwarnings('ignore', category=RuntimeWarning)
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # Coordinate di Rivoli
 LATITUDE = 45.07347491421504
@@ -18,9 +16,6 @@ LONGITUDE = 7.543461388723449
 FILE_LAST_HOUR = "ultima_ora_icon_ch2_map.txt"
 RUN_DURATION = 120
 START_DELAY = 1
-
-# Base URL del bucket S3 OGD di MeteoSwiss
-BASE_URL = "https://ch.meteoschweiz.ogd-forecasting-icon-ch2.s3.eu-central-1.amazonaws.com"
 
 def estrai_limiti_run(hourly_data: dict, ref_param: str, utc_offset_sec: int) -> tuple[bool, str, datetime]:
     times = hourly_data.get("time", [])
@@ -78,25 +73,70 @@ def fetch_dati_con_retry() -> dict:
             time.sleep(15)
     return {}
 
-def scarica_grib_ch2(dt_run_utc: datetime, step: int, var_name: str = "tot_prec") -> str:
-    # Formato file derivato da schema grafico: icon-ch2-eps-YYYYMMDDHHMM-STEP-VAR-perturb.grib2
+def scarica_grib_ch2_stac(dt_run_utc: datetime, step: int, var_name: str = "TOT_PREC") -> str:
+    """Scarica i GRIB tramite la REST API STAC ufficiale di MeteoSwiss."""
+    stac_url = "https://data.geo.admin.ch/api/stac/v1/search"
+    
+    # Formatta l'orario di inizializzazione
+    ref_datetime = dt_run_utc.strftime("%Y-%m-%dT%H:00:00Z")
+    
+    # Formatta l'orizzonte (es. 24h -> P0DT24H00M00S)
+    days = step // 24
+    hours = step % 24
+    horizon = f"P{days}DT{hours:02d}H00M00S"
+    
+    # Corpo della richiesta POST secondo documentazione
+    payload = {
+        "collections": ["ch.meteoschweiz.ogd-forecasting-icon-ch2"],
+        "forecast:reference_datetime": ref_datetime,
+        "forecast:variable": var_name.upper(),
+        "forecast:perturbed": True,
+        "forecast:horizon": horizon
+    }
+    
     run_str = dt_run_utc.strftime("%Y%m%d%H%M")
     filename = f"icon-ch2-eps-{run_str}-{step}-{var_name}-perturb.grib2"
-    url = f"{BASE_URL}/{filename}"
     
     try:
-        print(f"Download {filename}...")
-        # Ignora la verifica del certificato SSL per scavalcare l'errore di Hostname mismatch
-        r = requests.get(url, stream=True, timeout=60, verify=False)
-        if r.status_code == 200:
+        print(f"Interrogo STAC API per step +{step}h ({ref_datetime})...")
+        r_stac = requests.post(stac_url, json=payload, timeout=30)
+        r_stac.raise_for_status()
+        
+        data = r_stac.json()
+        features = data.get("features", [])
+        
+        if not features:
+            print(f"Nessun asset STAC trovato per {ref_datetime} step {step}")
+            return ""
+            
+        # Estrai l'URL pre-firmato dal dizionario degli asset
+        assets = features[0].get("assets", {})
+        download_url = ""
+        
+        # Cerca l'href che finisce per .grib2
+        for key, asset in assets.items():
+            if "href" in asset and asset["href"].endswith(".grib2"):
+                download_url = asset["href"]
+                break
+                
+        if not download_url:
+            print("Nessun link GRIB (.grib2) trovato nella risposta STAC.")
+            return ""
+            
+        print(f"Scaricamento file presigned per step +{step}h...")
+        r_dl = requests.get(download_url, stream=True, timeout=120)
+        
+        if r_dl.status_code == 200:
             with open(filename, 'wb') as f:
-                for chunk in r.iter_content(chunk_size=8192):
+                for chunk in r_dl.iter_content(chunk_size=8192):
                     f.write(chunk)
             return filename
         else:
-            print(f"File non trovato (HTTP {r.status_code}): {url}")
+            print(f"Errore download file presigned (HTTP {r_dl.status_code})")
+            
     except Exception as e:
-        print(f"Errore download {filename}: {e}")
+        print(f"Errore STAC/Download {filename}: {e}")
+        
     return ""
 
 def invia_telegram(file_path: str, caption: str):
@@ -168,8 +208,8 @@ def genera_mappe_metview(dt_run_utc: datetime, nome_run: str):
         
         if step_end > RUN_DURATION: continue
 
-        file_start = scarica_grib_ch2(dt_run_utc, step_start)
-        file_end = scarica_grib_ch2(dt_run_utc, step_end)
+        file_start = scarica_grib_ch2_stac(dt_run_utc, step_start)
+        file_end = scarica_grib_ch2_stac(dt_run_utc, step_end)
 
         if not file_end or not file_start: 
             print(f"Skipping {target_start.strftime('%d/%m')} per mancanza dati.")
