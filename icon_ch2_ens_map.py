@@ -12,31 +12,29 @@ warnings.filterwarnings('ignore', category=RuntimeWarning)
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 def scarica_grib_ch2_stac(dt_run_utc: datetime, step: int, var_name: str = "TOT_PREC") -> str:
-    """Scarica i GRIB tramite la REST API STAC ufficiale di MeteoSwiss."""
+    """Scarica i GRIB tramite la REST API STAC ufficiale di MeteoSwiss (filtro per nome file)."""
     stac_url = "https://data.geo.admin.ch/api/stac/v1/search"
     
     # Formatta l'orario di inizializzazione
     ref_datetime = dt_run_utc.strftime("%Y-%m-%dT%H:00:00Z")
     
-    # Formatta l'orizzonte (es. 55h -> P2DT07H00M00S)
-    days = step // 24
-    hours = step % 24
-    horizon = f"P{days}DT{hours:02d}H00M00S"
-    
-    # Corpo della richiesta POST
+    # Corpo della richiesta POST:
+    # Omettiamo volutamente "forecast:horizon" in modo da ottenere TUTTI gli step di questo run
     payload = {
         "collections": ["ch.meteoschweiz.ogd-forecasting-icon-ch2"],
         "forecast:reference_datetime": ref_datetime,
         "forecast:variable": var_name.upper(),
-        "forecast:perturbed": True,
-        "forecast:horizon": horizon
+        "forecast:perturbed": True
     }
     
     run_str = dt_run_utc.strftime("%Y%m%d%H%M")
-    filename = f"icon-ch2-eps-{run_str}-{step}-{var_name}-perturb.grib2"
+    
+    # Il pattern esatto del file che vogliamo (notare var_name in minuscolo per il file)
+    target_pattern = f"icon-ch2-eps-{run_str}-{step}-{var_name.lower()}-perturb.grib2"
+    filename = target_pattern
     
     try:
-        print(f"Interrogo STAC API per step +{step}h ({ref_datetime})...")
+        print(f"Interrogo STAC API (recupero tutti gli step per il run {ref_datetime})...")
         r_stac = requests.post(stac_url, json=payload, timeout=30)
         r_stac.raise_for_status()
         
@@ -44,24 +42,28 @@ def scarica_grib_ch2_stac(dt_run_utc: datetime, step: int, var_name: str = "TOT_
         features = data.get("features", [])
         
         if not features:
-            print(f"Nessun asset STAC trovato per {ref_datetime} step {step}")
+            print(f"Nessun asset STAC trovato per il run {ref_datetime}")
             return ""
             
-        assets = features[0].get("assets", {})
         download_url = ""
         
-        # Cerca ".grib2" all'interno dell'href per bypassare le chiavi AWS accodate
-        for key, asset in assets.items():
-            href = asset.get("href", "")
-            if ".grib2" in href: 
-                download_url = href
+        # Scorriamo tutte le feature (cioè tutti gli step temporali restituiti)
+        for feature in features:
+            assets = feature.get("assets", {})
+            for key, asset in assets.items():
+                href = asset.get("href", "")
+                # Cerchiamo il link pre-firmato che contiene il nome del nostro file esatto
+                if target_pattern in href: 
+                    download_url = href
+                    break
+            if download_url:
                 break
                 
         if not download_url:
-            print("Nessun link GRIB (.grib2) trovato.")
+            print(f"Nessun link GRIB trovato contenente: {target_pattern}")
             return ""
             
-        print(f"Scaricamento file da S3 per step +{step}h...")
+        print(f"Trovato! Scaricamento file da S3 per step +{step}h...")
         r_dl = requests.get(download_url, stream=True, timeout=120, verify=False)
         
         if r_dl.status_code == 200:
