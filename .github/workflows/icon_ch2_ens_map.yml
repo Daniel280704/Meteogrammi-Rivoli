@@ -1,0 +1,47 @@
+name: Generate ICON-CH2 ENS Maps
+
+on:
+  schedule:
+    - cron: '15 2,8,14,20 * * *' # Schedulazione allineata indicativamente con i run ICON
+  workflow_dispatch:
+
+jobs:
+  build_and_plot:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: Install System Dependencies & ecCodes
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y eccodes libeccodes-dev
+
+      - name: Clone COSMO and ECMWF GRIB Definitions
+        run: |
+          mkdir -p grib_definitions
+          cd grib_definitions
+          git clone https://github.com/COSMO-ORG/eccodes-cosmo-resources.git
+          git clone https://github.com/ecmwf/eccodes.git
+          cd ..
+
+      - name: Install Python Packages
+        run: |
+          pip install --upgrade pip
+          pip install metview requests numpy pandas matplotlib
+
+      - name: Run ICON-CH2 Mapping Script
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          # Set the GRIB format local definitions of the COSMO consortium
+          GRIB_DEFINITION_PATH: ${{ github.workspace }}/grib_definitions/eccodes-cosmo-resources/definitions:${{ github.workspace }}/grib_definitions/eccodes/definitions
+        run: |
+          python icon_ch2_ens_map.py
