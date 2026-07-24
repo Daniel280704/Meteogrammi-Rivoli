@@ -177,7 +177,7 @@ def genera_mappa_test(dt_run_utc: datetime):
         print(f"❌ Errore rendering Metview: {e}")
 
 if __name__ == "__main__":
-    # FORZATURA DEL RUN: 23 Luglio 2026, ore 06:00 UTC
-    dt_forzato = datetime(2026, 7, 23, 6, 0, 0)
+    # FORZATURA DEL RUN: 23 Luglio 2026, ore 12:00 UTC (il run 06Z è scaduto)
+    dt_forzato = datetime(2026, 7, 23, 12, 0, 0)
     print(f"🚀 Avvio script di TEST per il RUN FORZATO: {dt_forzato} UTC")
     genera_mappa_test(dt_forzato)
