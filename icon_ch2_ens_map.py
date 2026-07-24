@@ -2,76 +2,14 @@ import os
 import sys
 import time
 import requests
+import urllib3
 import metview as mv
 from datetime import datetime, timedelta
 import warnings
 
-# Disabilita i warning a schermo per Runtime
+# Disabilita i warning a schermo per Runtime e SSL
 warnings.filterwarnings('ignore', category=RuntimeWarning)
-
-# Coordinate di Rivoli
-LATITUDE = 45.07347491421504
-LONGITUDE = 7.543461388723449
-
-FILE_LAST_HOUR = "ultima_ora_icon_ch2_map.txt"
-RUN_DURATION = 120
-START_DELAY = 1
-
-def estrai_limiti_run(hourly_data: dict, ref_param: str, utc_offset_sec: int) -> tuple[bool, str, datetime]:
-    times = hourly_data.get("time", [])
-    mean_vals = hourly_data.get(ref_param, [])
-    
-    if not times or not mean_vals: return False, "", None
-    
-    end_idx = -1
-    for i in range(len(mean_vals) - 1, -1, -1):
-        if mean_vals[i] is not None:
-            end_idx = i
-            break
-            
-    if end_idx == -1: return False, "", None
-    
-    ultima_ora_valida_str = times[end_idx]
-    dt_end_local = datetime.fromisoformat(ultima_ora_valida_str)
-    dt_end_utc = dt_end_local - timedelta(seconds=utc_offset_sec)
-    dt_run_utc = dt_end_utc - timedelta(hours=RUN_DURATION)
-    
-    nome_run = dt_run_utc.strftime("%H") + "Z"
-    
-    if os.path.exists(FILE_LAST_HOUR):
-        with open(FILE_LAST_HOUR, "r") as f:
-            ultima_ora_salvata = f.read().strip()
-        if ultima_ora_valida_str <= ultima_ora_salvata:
-            print(f"✅ Run ICON-CH2 {nome_run} già elaborato.")
-            return False, "", None
-
-    with open(FILE_LAST_HOUR, "w") as f:
-        f.write(ultima_ora_valida_str)
-
-    return True, nome_run, dt_run_utc
-
-def fetch_dati_con_retry() -> dict:
-    URL = "https://ensemble-api.open-meteo.com/v1/ensemble"
-    params = {
-        "latitude": LATITUDE,
-        "longitude": LONGITUDE,
-        "hourly": "temperature_2m",
-        "models": "meteoswiss_icon_ch2_ensemble_mean",
-        "timezone": "Europe/Rome",
-        "past_days": 1,
-        "forecast_days": 6 
-    }
-    headers = {"User-Agent": "MeteoBot-ICONCH2-Map/1.0"}
-
-    for _ in range(3):
-        try:
-            response = requests.get(URL, params=params, headers=headers, timeout=30)
-            response.raise_for_status()
-            return response.json()
-        except Exception as e:
-            print(f"⚠️ Errore API: {e}", file=sys.stderr)
-            time.sleep(15)
-    return {}
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 def scarica_grib_ch2_stac(dt_run_utc: datetime, step: int, var_name: str = "TOT_PREC") -> str:
     """Scarica i GRIB tramite la REST API STAC ufficiale di MeteoSwiss."""
@@ -80,12 +18,12 @@ def scarica_grib_ch2_stac(dt_run_utc: datetime, step: int, var_name: str = "TOT_
     # Formatta l'orario di inizializzazione
     ref_datetime = dt_run_utc.strftime("%Y-%m-%dT%H:00:00Z")
     
-    # Formatta l'orizzonte (es. 24h -> P0DT24H00M00S)
+    # Formatta l'orizzonte (es. 55h -> P2DT07H00M00S)
     days = step // 24
     hours = step % 24
     horizon = f"P{days}DT{hours:02d}H00M00S"
     
-    # Corpo della richiesta POST secondo documentazione
+    # Corpo della richiesta POST
     payload = {
         "collections": ["ch.meteoschweiz.ogd-forecasting-icon-ch2"],
         "forecast:reference_datetime": ref_datetime,
@@ -109,11 +47,10 @@ def scarica_grib_ch2_stac(dt_run_utc: datetime, step: int, var_name: str = "TOT_
             print(f"Nessun asset STAC trovato per {ref_datetime} step {step}")
             return ""
             
-        # Estrai l'URL pre-firmato dal dizionario degli asset
         assets = features[0].get("assets", {})
         download_url = ""
         
-        # Cerca ".grib2" all'interno della stringa (ignora i parametri query accodati)
+        # Cerca ".grib2" all'interno dell'href per bypassare le chiavi AWS accodate
         for key, asset in assets.items():
             href = asset.get("href", "")
             if ".grib2" in href: 
@@ -121,32 +58,33 @@ def scarica_grib_ch2_stac(dt_run_utc: datetime, step: int, var_name: str = "TOT_
                 break
                 
         if not download_url:
-            print("Nessun link GRIB (.grib2) trovato. Asset restituiti dall'API:")
-            for k, v in assets.items():
-                print(f" - {k}: {v.get('href', 'No href')}")
+            print("Nessun link GRIB (.grib2) trovato.")
             return ""
             
-        print(f"Scaricamento file presigned per step +{step}h...")
-        r_dl = requests.get(download_url, stream=True, timeout=120)
+        print(f"Scaricamento file da S3 per step +{step}h...")
+        r_dl = requests.get(download_url, stream=True, timeout=120, verify=False)
         
         if r_dl.status_code == 200:
             with open(filename, 'wb') as f:
                 for chunk in r_dl.iter_content(chunk_size=8192):
                     f.write(chunk)
+            print(f"File {filename} scaricato con successo.")
             return filename
         else:
-            print(f"Errore download file presigned (HTTP {r_dl.status_code})")
+            print(f"Errore download (HTTP {r_dl.status_code})")
             
     except Exception as e:
         print(f"Errore STAC/Download {filename}: {e}")
         
     return ""
-    
+
 def invia_telegram(file_path: str, caption: str):
     token = os.getenv("TELEGRAM_TOKEN")
     chat_id = os.getenv("TELEGRAM_CHAT_ID")
     
-    if not token or not chat_id: return
+    if not token or not chat_id: 
+        print("Credenziali Telegram mancanti.")
+        return
         
     url = f"https://api.telegram.org/bot{token}/sendPhoto"
     payload = {"chat_id": chat_id, "caption": caption}
@@ -155,13 +93,24 @@ def invia_telegram(file_path: str, caption: str):
         try:
             with open(file_path, "rb") as photo:
                 requests.post(url, data=payload, files={"photo": photo})
+            print("📸 Immagine inviata su Telegram!")
         except Exception as e:
             print(f"Errore invio Telegram: {e}")
 
-def genera_mappe_metview(dt_run_utc: datetime, nome_run: str):
-    indomani_00z = (dt_run_utc + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+def genera_mappa_test(dt_run_utc: datetime):
+    # Passaggi da scaricare per la differenza
+    step_start = 55
+    step_end = 101
     
-    # Impostazioni mappa Piemonte
+    file_start = scarica_grib_ch2_stac(dt_run_utc, step_start)
+    file_end = scarica_grib_ch2_stac(dt_run_utc, step_end)
+
+    if not file_start or not file_end:
+        print("Impossibile procedere: mancano uno o entrambi i file GRIB.")
+        return
+
+    print("Inizio rendering mappa Metview...")
+    
     coast = mv.mcoast(
         map_coastline_colour="brown", map_coastline_thickness=2, map_coastline_resolution="high",
         map_boundaries="on", map_boundaries_colour="brown", map_boundaries_thickness=2,
@@ -201,65 +150,32 @@ def genera_mappe_metview(dt_run_utc: datetime, nome_run: str):
     
     legend = mv.mlegend(legend_display_type="continuous", legend_box_mode="positional", legend_box_x_position=26.5, legend_box_y_position=3.0, legend_box_x_length=1.5, legend_box_y_length=14.0, legend_text_font_size=0.4)
 
-    # Ciclo previsionale (es. 3 giorni per l'orizzonte ad alta risoluzione)
-    for i in range(3):
-        target_start = indomani_00z + timedelta(days=i)
-        target_end = target_start + timedelta(days=1)
+    try:
+        tp_start_ens = mv.mean(mv.read(file_start))
+        tp_end_ens = mv.mean(mv.read(file_end))
         
-        step_start = int((target_start - dt_run_utc).total_seconds() / 3600)
-        step_end = int((target_end - dt_run_utc).total_seconds() / 3600)
+        tp_diff_mean = tp_end_ens - tp_start_ens
         
-        if step_end > RUN_DURATION: continue
-
-        file_start = scarica_grib_ch2_stac(dt_run_utc, step_start)
-        file_end = scarica_grib_ch2_stac(dt_run_utc, step_end)
-
-        if not file_end or not file_start: 
-            print(f"Skipping {target_start.strftime('%d/%m')} per mancanza dati.")
-            continue
-
-        try:
-            # Calcolo ensemble mean per gli step (Metview gestisce in automatico il calcolo medio dei member presenti)
-            tp_start_ens = mv.mean(mv.read(file_start))
-            tp_end_ens = mv.mean(mv.read(file_end))
-            
-            # ICON restituisce solitamente le precipitazioni totali già in mm (kg/m2)
-            tp_24h_mean = tp_end_ens - tp_start_ens
-            
-            str_run = dt_run_utc.strftime('%d/%m/%Y %H:%M')
-            str_valida = f"{target_start.strftime('%d/%m/%Y')} - {target_end.strftime('%d/%m/%Y')}"
-            
-            title = mv.mtext(text_lines=[f"ICON-CH2 EPS - Precipitazioni Medie 24 ore (Run: {str_run} UTC)", str_valida], text_font_size=0.5, text_colour='black')
-            
-            PNG_OUTPUT = f"tp_ch2_{step_start}"
-            png = mv.png_output(output_name=PNG_OUTPUT, output_width=1200)
-            mv.setoutput(png)
-            mv.plot(view, tp_24h_mean, tp_style, capoluoghi, stile_capoluoghi, rivoli_point, stile_rivoli, legend, title)
-            
-            file_generato = f"{PNG_OUTPUT}.1.png"
-            invia_telegram(file_generato, f"🌧 ICON-CH2 EPS (Media 24h): {str_valida}\n⚙️ Run: {str_run} UTC")
-            
-        except Exception as e:
-            print(f"Errore rendering Metview: {e}")
-
-        # Pulizia file per risparmiare I/O
-        for f in [file_start, file_end, file_generato]:
-            if os.path.exists(f): os.remove(f)
-
-def main():
-    data = fetch_dati_con_retry()
-    if not data: sys.exit(0)
+        str_run = dt_run_utc.strftime('%d/%m/%Y %H:%M')
         
-    hourly = data.get("hourly", {})
-    utc_offset = data.get("utc_offset_seconds", 0)
-    
-    is_new, nome_run, dt_run_utc = estrai_limiti_run(hourly, "temperature_2m", utc_offset)
-    
-    if is_new:
-        print(f"🚀 Lancio generazione mappe ICON-CH2 per il RUN {nome_run} ({dt_run_utc})")
-        genera_mappe_metview(dt_run_utc, nome_run)
-    else:
-        print("Nessun nuovo run. Uscita.")
+        title = mv.mtext(
+            text_lines=[f"TEST FORZATO: ICON-CH2 EPS - Precipitazioni Medie (Run: {str_run} UTC)", f"Accumulo da step +{step_start}h a step +{step_end}h"], 
+            text_font_size=0.5, text_colour='black'
+        )
+        
+        PNG_OUTPUT = "mappa_forzata_ch2"
+        png = mv.png_output(output_name=PNG_OUTPUT, output_width=1200)
+        mv.setoutput(png)
+        mv.plot(view, tp_diff_mean, tp_style, capoluoghi, stile_capoluoghi, rivoli_point, stile_rivoli, legend, title)
+        
+        file_generato = f"{PNG_OUTPUT}.1.png"
+        invia_telegram(file_generato, f"🌧 TEST API STAC: Mappa ICON-CH2 (Run {str_run}Z).\nAccumulo step {step_start}-{step_end}.")
+        
+    except Exception as e:
+        print(f"❌ Errore rendering Metview: {e}")
 
 if __name__ == "__main__":
-    main()
+    # FORZATURA DEL RUN: 23 Luglio 2026, ore 06:00 UTC
+    dt_forzato = datetime(2026, 7, 23, 6, 0, 0)
+    print(f"🚀 Avvio script di TEST per il RUN FORZATO: {dt_forzato} UTC")
+    genera_mappa_test(dt_forzato)
