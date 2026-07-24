@@ -191,9 +191,11 @@ def genera_album_cape(dt_run_utc: datetime, nome_run: str):
     nx, ny = 300, 300
     destination = regrid.RegularGrid(CRS.from_string("epsg:4326"), nx, ny, xmin, xmax, ymin, ymax)
 
-    # Scala colori CAPE: giallo -> arancio -> rosso -> viola (J/kg)
-    my_levels = [500, 750, 1000, 1250, 1500, 2000, 2500, 3000]
-    my_colors = ["#fff7bc", "#fee391", "#fec44f", "#fe9929", "#ec7014", "#cc4c02", "#8c2d04", "#7a0177"]
+    # Scala colori CAPE dettagliata: 200-5000 J/kg
+    # Da blu (instabilità debole) a rosso scuro (instabilità estrema)
+    my_levels = [200, 300, 400, 500, 750, 1000, 1250, 1500, 1750, 2000, 2500, 3000, 3500, 4000, 4500, 5000]
+    my_colors = ["#4575b4", "#74add1", "#abd9e9", "#e0f3f8", "#ffffbf", "#fee090", "#fdae61", "#f46d43", 
+                 "#d73027", "#c7192b", "#b30000", "#8b0000", "#660000", "#440000", "#220000"]
     domain = domains.Domain.from_bbox(bbox=bounds.BoundingBox(xmin, xmax, ymin, ymax, ccrs.Geodetic()), name="Piemonte")
 
     # Gestione livelli confini Geografici
